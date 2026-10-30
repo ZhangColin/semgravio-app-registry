@@ -1,5 +1,5 @@
-# 测试 profile：在 aieducenter 库内用专用 schema `app_registry_test` 做隔离
-# （aiedu 无 CREATEDB 权限，但拥有 aieducenter 库、可建 schema）。
+# 测试 profile：在 semgravio 库内用专用 schema `app_registry_test` 做隔离
+# （semgravio 无 CREATEDB 权限，但拥有 semgravio 库、可建 schema）。
 # `currentSchema=app_registry_test` 让 Hibernate 生成 SQL 与原生撞名查询都走同一 search_path。
 # e2e 测试（@SpringBootTest + MockMvc）依赖此 profile + 真实 PostgreSQL。
 
@@ -9,8 +9,8 @@ APP_REGISTRY_API_SECRET_MASTER_KEY: Hl7fZUXzcLKaPtHpni3ujMwaEMc6cX6PtDRfwaa9c3w=
 
 spring:
   datasource:
-    url: ${TEST_DB_URL:jdbc:postgresql://localhost:5432/aieducenter?currentSchema=app_registry_test}
-    username: ${TEST_DB_USER:aiedu}
+    url: ${TEST_DB_URL:jdbc:postgresql://localhost:5432/semgravio?currentSchema=app_registry_test}
+    username: ${TEST_DB_USER:semgravio}
     password: ${TEST_DB_PASSWORD:dev123}
     driver-class-name: org.postgresql.Driver
   data:
@@ -20,7 +20,7 @@ spring:
   flyway:
     enabled: true
     schemas: app_registry_test
-    table: aieducenter_app_registry_flyway_schema_history
+    table: semgravio_app_registry_flyway_schema_history
     baseline-on-migrate: true
     baseline-version: "0"
     locations: classpath:db/migration
@@ -33,4 +33,4 @@ spring:
 logging:
   level:
     root: WARN
-    com.aieducenter: DEBUG
+    com.semgravio: DEBUG

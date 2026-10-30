@@ -1200,13 +1200,13 @@ public class UserAuthAppService {
 
 ```java
 // 业务项目中继承即可获得全部规则
-@AnalyzeClasses(packages = "com.aieducenter")
+@AnalyzeClasses(packages = "com.semgravio")
 public class ArchitectureTest extends CartisanArchRules {
     // 完成！所有规则自动生效
 }
 
 // 或选择性使用
-@AnalyzeClasses(packages = "com.aieducenter")
+@AnalyzeClasses(packages = "com.semgravio")
 public class ArchitectureTest {
     @ArchTest
     static final ArchRules layering = ArchRules.in(CartisanLayeringRules.class);

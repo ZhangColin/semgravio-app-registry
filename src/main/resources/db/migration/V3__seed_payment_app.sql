@@ -1,5 +1,5 @@
 -- V3: seed 平台应用 payment（app_code = payment）。
--- 为 aieducenter-payment 作为签名 facet 消费方登记应用主行：payment 机机调用平台各服务需以自身 ApiKey 签名，
+-- 为 semgravio-payment 作为签名 facet 消费方登记应用主行：payment 机机调用平台各服务需以自身 ApiKey 签名，
 -- 各服务 LocalApiKeyProvider/RemoteApiKeyProvider 凭 api_key/appId 验签，故需先在 app-registry 登记。
 --
 -- 范围：只插应用主行（ar_registered_apps）。ApiKey facet 由维护者事后通过既有 createOrRotate 接口手动创建

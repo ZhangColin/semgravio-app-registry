@@ -6,7 +6,7 @@
 
 ## 背景（Context）
 
-SsoClient 供 identity（IdP）OIDC：登记「哪些应用能走 SSO」+ 持其 client 元数据。服务从 `aieducenter-openapi` 升级为 `app-registry` 的驱动原因即此。
+SsoClient 供 identity（IdP）OIDC：登记「哪些应用能走 SSO」+ 持其 client 元数据。服务从 `semgravio-openapi` 升级为 `app-registry` 的驱动原因即此。
 
 约束：
 - 架构不变式：`client_secret` 必须 **hash-only**（像密码，IdP 本地比对、永不返回明文）；与 `apiSecret`（可取回）**存储相反**；SSO 走独立端点、identity 直接消费；`ApiKeyInfo`/`ApiKeyProvider` 绝不服务 SSO；SSO bootstrap 端点需验签（`@RequireSignature`）、必须加固；本服务不做 OIDC token 签发/登录流。

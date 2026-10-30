@@ -4,7 +4,7 @@ set -e
 # ========== 配置区 ==========
 SERVER_USER="root"
 SERVER_HOST="43.140.211.9"
-SERVER_PATH="/opt/hcy/aieducenter-openapi"
+SERVER_PATH="/opt/hcy/semgravio-openapi"
 SERVER_PASSWORD="Hcy@20260327"
 
 # ========== 逻辑区 ==========
@@ -27,8 +27,8 @@ info "正在构建项目..."
 mvn package -DskipTests -q
 
 # 2. 检查 JAR 文件
-if [ ! -f "target/aieducenter-app-registry-1.0.0-SNAPSHOT.jar" ]; then
-  error "构建失败：找不到 target/aieducenter-app-registry-1.0.0-SNAPSHOT.jar"
+if [ ! -f "target/semgravio-app-registry-1.0.0-SNAPSHOT.jar" ]; then
+  error "构建失败：找不到 target/semgravio-app-registry-1.0.0-SNAPSHOT.jar"
   exit 1
 fi
 info "构建完成"
@@ -44,7 +44,7 @@ fi
 TMP_DIR=$(mktemp -d)
 info "准备部署文件..."
 mkdir -p "$TMP_DIR/target"
-cp "target/aieducenter-app-registry-1.0.0-SNAPSHOT.jar" "$TMP_DIR/target/"
+cp "target/semgravio-app-registry-1.0.0-SNAPSHOT.jar" "$TMP_DIR/target/"
 cp Dockerfile "$TMP_DIR/"
 cp docker-compose.prod.yml "$TMP_DIR/"
 cp deploy.sh "$TMP_DIR/"

@@ -1,6 +1,6 @@
-# aieducenter-app-registry
+# semgravio-app-registry
 
-Service 服务，基于 cartisan-boot 框架。
+「语义引力」（semgravio）平台的 Service 服务，基于 cartisan-boot 框架。
 
 ## 核心文档
 
@@ -26,20 +26,20 @@ Service 服务，基于 cartisan-boot 框架。
 
 ### Issue tracker
 
-Issues and PRDs live as GitHub issues (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+Issue 跟踪在本仓库的 GitHub Issues（ZhangColin/semgravio-app-registry），统一用 `gh` CLI 操作。See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Five canonical triage roles, label string equal to role name: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+使用默认五个 triage 标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix。See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context 布局：根目录 `CONTEXT.md` + `docs/adr/`。See `docs/agents/domain.md`.
 
 ## 平台架构上下文
-本服务（app-registry）是平台「应用/消费方」单一登记处（基础能力层）。原 aieducenter-openapi，
+本服务（app-registry）是「语义引力」（semgravio）平台「应用/消费方」单一登记处（基础能力层）。原 semgravio-openapi，
 因 identity SSO 需要登记「哪些应用能走 SSO」而升级。完整架构与决策在兄弟仓库
-../aieducenter-architecture/（起步包 docs/starters/app-registry.md）。
+../semgravio-architecture/（起步包 docs/starters/app-registry.md）。
 
 稳定不变式（务必遵守）：
 - 一个应用一行，可持有 ApiKey（apiKey/apiSecret，供 cartisan-openapi 机机验签）和/或 SsoClient（client_id/client_secret/redirect_uris/scopes/grants，供 IdP OIDC）。两者独立、可空。

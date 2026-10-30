@@ -2,8 +2,8 @@ APP_REGISTRY_API_SECRET_MASTER_KEY: UjPTu0eCrnOf6LbpUC/Xz7CZOD6ArgD8aBAfjBDrALk=
 
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/aieducenter
-    username: aiedu
+    url: jdbc:postgresql://localhost:5432/semgravio
+    username: semgravio
     password: dev123
   data:
     redis:

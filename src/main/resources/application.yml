@@ -3,12 +3,12 @@ server:
 
 spring:
   application:
-    name: aieducenter-app-registry
+    name: semgravio-app-registry
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
   flyway:
     enabled: true
-    table: aieducenter_app_registry_flyway_schema_history
+    table: semgravio_app_registry_flyway_schema_history
     baseline-on-migrate: true
     baseline-version: "0"
     locations: classpath:db/migration

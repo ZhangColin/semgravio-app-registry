@@ -1,8 +1,8 @@
-# aieducenter-app-registry
+# semgravio-app-registry
 
-平台「应用/消费方」的**单一登记处**（基础能力层）——一个应用一行，可持有 ApiKey 和/或 SsoClient。由 `aieducenter-openapi` 服务**升级**而来（identity SSO 驱动：要登记「哪些应用能走 SSO」）。本文件是本服务的**术语表 + 设计决策**，不含实现细节。
+「语义引力」（semgravio）平台「应用/消费方」的**单一登记处**（基础能力层）——一个应用一行，可持有 ApiKey 和/或 SsoClient。由 `semgravio-openapi` 服务**升级**而来（identity SSO 驱动：要登记「哪些应用能走 SSO」）。本文件是本服务的**术语表 + 设计决策**，不含实现细节。
 
-> 架构权威在兄弟仓库 `../aieducenter-architecture/`（起步包 `docs/starters/app-registry.md`、`CONTEXT.md`「应用注册」条目、`architecture.md` §4/§6.1）。本文件是其在 app-registry 服务内的落地折射 + 本项目自己的演进决策（`docs/adr/`）。
+> 架构权威在兄弟仓库 `../semgravio-architecture/`（起步包 `docs/starters/app-registry.md`、`CONTEXT.md`「应用注册」条目、`architecture.md` §4/§6.1）。本文件是其在 app-registry 服务内的落地折射 + 本项目自己的演进决策（`docs/adr/`）。
 
 ## 稳定不变式（务必遵守）
 

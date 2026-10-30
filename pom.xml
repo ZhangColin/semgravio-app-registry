@@ -11,8 +11,8 @@
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <groupId>com.aieducenter</groupId>
-    <artifactId>aieducenter-app-registry</artifactId>
+    <groupId>com.semgravio</groupId>
+    <artifactId>semgravio-app-registry</artifactId>
     <version>1.0.0-SNAPSHOT</version>
 
     <properties>
@@ -163,7 +163,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>3.4.1</version>
                 <configuration>
-                    <mainClass>com.aieducenter.appregistry.AppRegistryApplication</mainClass>
+                    <mainClass>com.semgravio.appregistry.AppRegistryApplication</mainClass>
                     <jvmArguments>--enable-preview</jvmArguments>
                 </configuration>
                 <executions>
@@ -186,7 +186,7 @@
                 </dependencies>
                 <configuration>
                     <targetClasses>
-                        <param>com.aieducenter.appregistry.*</param>
+                        <param>com.semgravio.appregistry.*</param>
                     </targetClasses>
                     <mutators>DEFAULTS</mutators>
                     <mutationThreshold>70</mutationThreshold>

@@ -19,8 +19,8 @@ fi
 info "环境配置文件检查通过"
 
 # 步骤 2：检查 JAR 文件
-if [ ! -f "target/aieducenter-app-registry-1.0.0-SNAPSHOT.jar" ]; then
-  error "找不到 JAR 文件: target/aieducenter-app-registry-1.0.0-SNAPSHOT.jar"
+if [ ! -f "target/semgravio-app-registry-1.0.0-SNAPSHOT.jar" ]; then
+  error "找不到 JAR 文件: target/semgravio-app-registry-1.0.0-SNAPSHOT.jar"
   exit 1
 fi
 info "JAR 文件检查通过"

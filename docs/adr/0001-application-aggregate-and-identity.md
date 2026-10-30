@@ -6,7 +6,7 @@
 
 ## 背景（Context）
 
-服务从 `aieducenter-openapi` 升级为 `app-registry`，要持 **ApiKey**（apiKey/apiSecret，供 `cartisan-openapi` 机机验签）+ **SsoClient**（client_id/client_secret/redirect_uris/scopes/grants，供 IdP OIDC）两类身份。
+服务从 `semgravio-openapi` 升级为 `app-registry`，要持 **ApiKey**（apiKey/apiSecret，供 `cartisan-openapi` 机机验签）+ **SsoClient**（client_id/client_secret/redirect_uris/scopes/grants，供 IdP OIDC）两类身份。
 
 现状是单一 `ApiKey` 聚合 + 单表 `oas_api_keys`，`apiKey` 既是应用标识又是签名 key，无法表达"一个应用持 ApiKey 和 SsoClient"。需要确定应用与这两类凭证的聚合边界、基数、以及标识体系。
 
@@ -37,7 +37,7 @@
 
 5. **`RegisteredApp` 是治理锚点**：持 name/description/应用级状态，不退化成空壳。app 禁用是否级联到 ApiKey/SsoClient——用"查询时 join app 校验应用级状态"或领域事件最终一致，**不**靠同事务强一致。（**已定**：选 join app 校验 + `ApiKeyInfo.status` 联合 `app.status`/`api_key.status`，见 CONTEXT.md「聚合边界」。）
 
-6. **命名**：上下文码 `ar`（AppRegistry）；实体 `RegisteredApp` → 表 `ar_registered_apps`（表名对应实体、复数、下划线分隔）；flyway 履历表 greenfield 直接启用新名 `aieducenter_app_registry_flyway_schema_history`（无改名风险）。旧 `OpenApi` 相关（包 `domain/apikey`、错误码 `OpenApiMessage`、HTTP `/api/openapi/...`、bounded context 名）一次性改掉。
+6. **命名**：上下文码 `ar`（AppRegistry）；实体 `RegisteredApp` → 表 `ar_registered_apps`（表名对应实体、复数、下划线分隔）；flyway 履历表 greenfield 直接启用新名 `semgravio_app_registry_flyway_schema_history`（无改名风险）。旧 `OpenApi` 相关（包 `domain/apikey`、错误码 `OpenApiMessage`、HTTP `/api/openapi/...`、bounded context 名）一次性改掉。
 
 ## 结果（Consequences）
 

@@ -1,5 +1,5 @@
 -- V2: seed 平台应用 identity（app_code = identity）。
--- 为 aieducenter-identity 消费 app-registry 的 SSO bootstrap 端点（@RequireSignature）提供应用登记项：
+-- 为 semgravio-identity 消费 app-registry 的 SSO bootstrap 端点（@RequireSignature）提供应用登记项：
 -- identity 调该端点需以自身 ApiKey 签名，故需先在 app-registry 登记为应用（GitHub #17）。
 --
 -- 范围：只插应用主行（ar_registered_apps）。ApiKey facet 由维护者事后通过既有 createOrRotate 接口手动创建

@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    container_name: aieducenter-openapi
+    container_name: semgravio-openapi
     restart: unless-stopped
     env_file:
       - .env.production
