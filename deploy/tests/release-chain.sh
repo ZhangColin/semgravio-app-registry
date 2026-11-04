@@ -281,21 +281,21 @@ new_stub_home
 stub_infra
 out=$(run_release 2>&1); rc=$?
 [ "$rc" -eq 0 ] || { echo "$out" >&2; die "首次发布全绿场景应零退出"; }
-ENV="$STUB_HOME/semgravio-app-registry/.env.production"
-[ -f "$ENV" ] || die "首次发布未创建 env"
+ENV_FILE="$STUB_HOME/semgravio-app-registry/.env.production"
+[ -f "$ENV_FILE" ] || die "首次发布未创建 env"
 if [ "$CHMOD_EFFECTIVE" = "1" ]; then
-  [ "$(stat -c '%a' "$ENV")" = "600" ] || die "env 权限非 600：$(stat -c '%a' "$ENV")"
+  [ "$(stat -c '%a' "$ENV_FILE")" = "600" ] || die "env 权限非 600：$(stat -c '%a' "$ENV_FILE")"
   ok "env 权限 600"
 else
   ok "本机 chmod 为建议性（Git Bash noacl）：跳过 600 位断言，脚本始终 chmod 600（Linux 生效）"
 fi
-grep -q '^SPRING_DATASOURCE_URL=jdbc:postgresql://semgravio-pg:5432/semgravio_app_registry$' "$ENV" \
+grep -q '^SPRING_DATASOURCE_URL=jdbc:postgresql://semgravio-pg:5432/semgravio_app_registry$' "$ENV_FILE" \
   || die "env 数据源 URL 不是独立库 semgravio_app_registry"
-grep -q '^SPRING_DATASOURCE_USERNAME=semgravio_app_registry$' "$ENV" || die "env 库角色名不对"
-grep -q '^REDIS_HOST=semgravio-redis$' "$ENV" || die "env Redis 主机不对"
-grep -q '^REDIS_PASSWORD=infra-redis-secret$' "$ENV" || die "env Redis 密码未取自 infra 凭据正本"
-db_pw=$(grep '^SPRING_DATASOURCE_PASSWORD=' "$ENV" | cut -d= -f2-)
-master_key=$(grep '^APP_REGISTRY_API_SECRET_MASTER_KEY=' "$ENV" | cut -d= -f2-)
+grep -q '^SPRING_DATASOURCE_USERNAME=semgravio_app_registry$' "$ENV_FILE" || die "env 库角色名不对"
+grep -q '^REDIS_HOST=semgravio-redis$' "$ENV_FILE" || die "env Redis 主机不对"
+grep -q '^REDIS_PASSWORD=infra-redis-secret$' "$ENV_FILE" || die "env Redis 密码未取自 infra 凭据正本"
+db_pw=$(grep '^SPRING_DATASOURCE_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)
+master_key=$(grep '^APP_REGISTRY_API_SECRET_MASTER_KEY=' "$ENV_FILE" | cut -d= -f2-)
 [ -n "$db_pw" ] || die "env 缺自动生成的数据库密码"
 [ -n "$master_key" ] || die "env 缺自动生成的 master key"
 [ "$(printf '%s' "$master_key" | base64 -d 2>/dev/null | wc -c | tr -d '[:space:]')" = 32 ] \
@@ -310,12 +310,24 @@ grep -q "db_password=$db_pw" <<<"$helper_log" || die "ensure-db-user 未收到�
 ok "首次发布：ensure-db-user 自动建号 + env 600 落盘 + 正本取 Redis 密码；三类 secret 均不在终端输出"
 
 # 重复发布：复用既有 env 与全部凭据，不重置 master key、不重跑建号、不被部署包覆盖
-cp "$ENV" "$TMP_BASE/env-first.bak"
+cp "$ENV_FILE" "$TMP_BASE/env-first.bak"
 out=$(run_release 2>&1); rc=$?
 [ "$rc" -eq 0 ] || { echo "$out" >&2; die "重复发布应零退出"; }
-cmp -s "$ENV" "$TMP_BASE/env-first.bak" || die "重复发布后 env 被改动（master key 终身稳定，#26 决策 10）"
+cmp -s "$ENV_FILE" "$TMP_BASE/env-first.bak" || die "重复发布后 env 被改动（master key 终身稳定，#26 决策 10）"
 [ "$(grep -c '' "$STUB_HOME/ensure-db-user.log")" -eq 1 ] || die "重复发布不应重跑 ensure-db-user（幂等复用）"
 ok "重复发布：env 逐字节不变、ensure-db-user 不重跑"
+
+# 首次发布：infra 凭据正本缺 REDIS_PASSWORD 行 → 明确报错非零退出（管道无匹配不得 set -e 静默终止）
+new_stub_home
+stub_infra
+sed -i '/^REDIS_PASSWORD=/d' "$STUB_HOME/semgravio-infra/.env"
+out=$(run_release 2>&1); rc=$?
+[ "$rc" -ne 0 ] || die "infra 正本缺 REDIS_PASSWORD 场景应非零退出"
+grep -q "REDIS_PASSWORD" <<<"$out" || die "未提示凭据正本缺 REDIS_PASSWORD（静默终止？）：$out"
+no_compose_called || die "正本缺 Redis 密码失败后仍动了应用"
+[ ! -f "$STUB_HOME/semgravio-app-registry/.env.production" ] || die "失败后不应留下半成品 env"
+[ ! -f "$STUB_HOME/ensure-db-user.log" ] || die "正本缺 Redis 密码不应已动 infra（建号已执行）"
+ok "infra 凭据正本缺 REDIS_PASSWORD → 明确报错非零退出（无 compose/无半成品 env/未动 infra）"
 
 # 校验失败矩阵：应用启动前非零退出、env 原样不动（绝不自动换 master key“修复”）
 vfail() { # $1=描述 $2=env 内容 $3=预期输出关键字

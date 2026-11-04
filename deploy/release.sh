@@ -88,8 +88,9 @@ if [ ! -f "$ENV_FILE" ]; then
   [ -f "$INFRA_PATH/.env" ] \
     || { echo "   ✗ 缺 $INFRA_PATH/.env（共享 infra 凭据正本）——先跑 $INFRA_PATH/deploy.sh"; exit 1; }
   # Redis 密码只从 infra 凭据正本按行提取（不 source 正本——超管凭据绝不进发布进程）；
-  # 值不落终端：只进即将 600 落盘的 env
-  redis_pw=$(grep -E '^REDIS_PASSWORD=' "$INFRA_PATH/.env" | tail -n 1 | cut -d= -f2-)
+  # 值不落终端：只进即将 600 落盘的 env。grep 无匹配退出 1——pipefail+set -e 会在赋值处
+  # 静默终止（下面的友好报错不可达），管道尾 || true 保住守卫分支
+  redis_pw=$(grep -E '^REDIS_PASSWORD=' "$INFRA_PATH/.env" | tail -n 1 | cut -d= -f2- || true)
   [ -n "$redis_pw" ] || { echo "   ✗ 共享 infra 凭据正本缺 REDIS_PASSWORD（$INFRA_PATH/.env）"; exit 1; }
   db_pw=$(openssl rand -hex 16)          # 应用库密码：本次首次发布生成，此后终身复用（存 env）
   master_key=$(openssl rand -base64 32)  # AES-256 主密钥：生成后终身不变（历史密文依赖它，#26 决策 10）
