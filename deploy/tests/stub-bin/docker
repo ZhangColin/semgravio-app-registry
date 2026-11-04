@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# release 测试替身 docker：模拟服务器侧 docker 行为，调用记入 $STUB_DOCKER_LOG 供断言。
+# release / server.sh 测试替身 docker：模拟服务器侧 docker 行为，调用记入 $STUB_DOCKER_LOG 供断言。
 # 场景旋钮（环境变量）：
 #   STUB_INFRA_MISSING="semgravio-redis"      → 这些容器 docker inspect 报 missing
 #   STUB_INFRA_UNHEALTHY="semgravio-pg ..."   → 这些容器报 unhealthy（其余 healthy）
 #   STUB_NO_WEBNET=1                          → docker network inspect webnet 失败
 #   STUB_HEALTH_FAIL=1                        → 应用 actuator 探活（docker exec ... curl）恒失败
+#   STUB_DUMP_FAIL=1                          → pg_dump 先吐残缺字节再失败（检验 pipefail＋
+#                                              临时文件保护：残缺产出不得顶着正式备份名留存）
 set -u
 
 log() { echo "$*" >> "${STUB_DOCKER_LOG:?STUB_DOCKER_LOG 未设置}"; }
@@ -28,12 +30,54 @@ case "$cmd" in
     fi
     ;;
   exec)
-    # 形态：docker exec semgravio-app-registry curl -sf -o /dev/null http://localhost:8088/actuator/health
+    # 两种形态：
+    #   docker exec semgravio-app-registry curl -sf -o /dev/null http://localhost:8088/actuator/health
+    #     （release 健康验收 / server.sh smoke；成功时回 JSON 健康体，-o /dev/null 的调用方自行丢弃）
+    #   docker exec -e PGPASSWORD=... semgravio-pg pg_dump -U <role> -d <db>
+    #     （release 发布前备份 / server.sh dump；成功产出以 dump complete 收尾的正本）
     log "exec $*"
-    if [ "${STUB_HEALTH_FAIL:-0}" = "1" ]; then
-      exit 1
-    fi
-    exit 0
+    case "$*" in
+      *pg_dump*)
+        if [ "${STUB_DUMP_FAIL:-0}" = "1" ]; then
+          echo "-- PostgreSQL database dump（残缺，模拟中途失败）"
+          exit 1
+        fi
+        printf '%s\n' \
+          '--' \
+          '-- PostgreSQL database dump' \
+          'CREATE TABLE apps (id bigint PRIMARY KEY);' \
+          '-- PostgreSQL database dump complete' \
+          '--'
+        ;;
+      *)
+        if [ "${STUB_HEALTH_FAIL:-0}" = "1" ]; then
+          exit 1
+        fi
+        echo '{"status":"UP"}'
+        ;;
+    esac
+    ;;
+  ps)
+    # 形态：docker ps --format 'table ...'（server.sh status）——打印 semgravio-* 全家＋一个
+    # 无关容器；「远端」grep -E 'semgravio' 负责滤掉无关项，断言看过滤后输出
+    log "ps $*"
+    printf '%s\n' \
+      "semgravio-app-registry   Up 2 hours (healthy)   semgravio-app-registry:release" \
+      "semgravio-pg             Up 3 days (healthy)    postgres:16" \
+      "semgravio-redis          Up 3 days (healthy)    redis:7.4.12-alpine" \
+      "semgravio-nginx          Up 3 days (healthy)    nginx:1.27" \
+      "unrelated-app            Up 1 hour              other:latest"
+    ;;
+  logs)
+    # 形态：docker logs -f --tail 200 <container>（server.sh logs）——回两行即退（不真跟随）
+    log "logs $*"
+    echo "stub-log-line-1"
+    echo "stub-log-line-2"
+    ;;
+  restart)
+    # 形态：docker restart <容器...>（server.sh restart）——只记调用；restart 只允许
+    # semgravio-app-registry 出现在日志行，混入 infra 容器即违规
+    log "restart $*"
     ;;
   compose)
     log "compose $*"

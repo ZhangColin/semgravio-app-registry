@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# 一键发布 semgravio-app-registry（内网 only，issue #27 主链 + #28 首次发布自动准备 env）：
-# 打包 → scp → 服务器 infra 门禁 → 生产 env 首次自动准备/全量校验 → 解包 → compose up -d --build
-# （不先 down）→ 容器内 actuator 健康验收（默认最长 180s，超时/失败非零退出并提示日志入口）。
+# 一键发布 semgravio-app-registry（内网 only，issue #27 主链 + #28 首次发布自动准备 env
+# + #29 发布前数据库备份）：
+# 打包 → scp → 服务器 infra 门禁 → 生产 env 首次自动准备/全量校验 → 发布前备份 →
+# 解包 → compose up -d --build（不先 down）→ 容器内 actuator 健康验收（默认最长 180s，
+# 超时/失败非零退出并提示日志入口）。
 # 仓库根执行：deploy/release.sh（PowerShell 里：bash deploy/release.sh）
 #
 # 首次发布（服务器应用目录无 .env.production）：经共享 infra 的 ensure-db-user 契约幂等准备
@@ -13,12 +15,20 @@
 # 非零退出，且绝不自动换 master key“修复”。共享基础设施 semgravio-{pg,redis,nginx} + webnet
 # 由 semgravio-infra 负责，本脚本只做门禁检查、不修复不重建。
 #
+# 发布前备份（#29）：在应用变更前用本服务自己的低权限角色＋env 正本库密码 dump 独立库
+# semgravio_app_registry（不经手 PG 超管凭据，不碰 aiplatform 等其他服务数据库）到应用目录
+# backups/semgravio_app_registry-<时间戳>.sql.gz（600，位置稳定、不被部署包解包覆盖）。
+# 备份是恢复材料，不是自动回滚——本票不实现旧应用或数据库的自动恢复，恢复需人工执行。
+# 备份失败在解包/重建前非零退出（先写 .tmp 校验完整再转正名，不留下被误报为成功的残缺备份）。
+# 日常运维（状态/日志/重启/手工备份/冒烟/登录）用 deploy/server.sh。
+#
 # 可覆盖变量（默认与 aiplatform 对齐）：
 #   SERVER_HOST=3.70.172.160   SERVER_USER=ubuntu   SSH_KEY=$HOME/ssh/semgravio-eu-1.pem
 #   REMOTE_DIR=semgravio-app-registry（相对服务器 $HOME；绝对路径以 / 开头也可）
 #   INFRA_DIR=semgravio-infra（共享 infra 单元目录：ensure-db-user 与凭据正本所在）
 #   HEALTH_WAIT_SECONDS=180（健康验收上限）
-# 常用开关：SKIP_BUILD=1 复用 dist/ 最新包只发布；ALLOW_DIRTY=1 带脏打包（明确警告）。
+# 常用开关：SKIP_BUILD=1 复用 dist/ 最新包只发布；ALLOW_DIRTY=1 带脏打包（明确警告）；
+#           SKIP_BACKUP=1 显式跳过发布前备份（自担风险）。
 #
 # SSH 安全：私钥 + BatchMode + ConnectTimeout，保留正常主机密钥校验——不用 sshpass、
 # 不保存服务器密码、不设置 StrictHostKeyChecking=no。
@@ -52,9 +62,9 @@ BASENAME=$(basename "$BUNDLE")
 echo "== 2/4 上传（$(du -h "$BUNDLE" | cut -f1) → $REMOTE） =="
 scp -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=15 "$BUNDLE" "$REMOTE:"
 
-echo "== 3/4 服务器：infra 门禁 → env 首次准备/校验 → 解包 → compose up --build → 健康验收 =="
+echo "== 3/4 服务器：infra 门禁 → env 首次准备/校验 → 发布前备份 → 解包 → compose up --build → 健康验收 =="
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
-  "BUNDLE_FN=$BASENAME REMOTE_DIR=$REMOTE_DIR INFRA_DIR=$INFRA_DIR HEALTH_WAIT_SECONDS=${HEALTH_WAIT_SECONDS:-180} bash -s" <<'REMOTE'
+  "BUNDLE_FN=$BASENAME REMOTE_DIR=$REMOTE_DIR INFRA_DIR=$INFRA_DIR HEALTH_WAIT_SECONDS=${HEALTH_WAIT_SECONDS:-180} SKIP_BACKUP=${SKIP_BACKUP:-0} bash -s" <<'REMOTE'
 set -euo pipefail
 if [ "${REMOTE_DIR:0:1}" = "/" ]; then APP_DIR="$REMOTE_DIR"; else APP_DIR="$HOME/$REMOTE_DIR"; fi
 if [ "${INFRA_DIR:0:1}" = "/" ]; then INFRA_PATH="$INFRA_DIR"; else INFRA_PATH="$HOME/$INFRA_DIR"; fi
@@ -133,6 +143,37 @@ if [ -n "${APP_REGISTRY_API_SECRET_MASTER_KEY:-}" ]; then
 fi
 [ "$env_bad" = 0 ] || { echo "   修正 $ENV_FILE 后重跑发布；校验失败不会自动重生成 master key（历史 apiSecret 密文依赖它）"; exit 1; }
 echo "   ✓ env 校验通过（必需变量齐全，master key 为 32 字节 Base64）"
+
+echo "-- 发布前备份（独立库 $DB_SERVICE，应用变更前；恢复材料而非自动回滚；SKIP_BACKUP=1 可跳过）"
+if [ "${SKIP_BACKUP:-0}" = "1" ]; then
+  echo "   已按 SKIP_BACKUP=1 跳过发布前备份（自担风险）"
+else
+  mkdir -p backups
+  BK_STAMP=$(date +%Y%m%d-%H%M%S)
+  BK_TMP="backups/.semgravio_app_registry-$BK_STAMP.sql.gz.tmp"
+  # 与 deploy/server.sh dump 保持同一数据库边界：只 dump 本服务独立库，用自己的低权限角色＋
+  # env 正本库密码（PGPASSWORD 只在服务器侧展开，不经命令行传输），不经手 PG 超管凭据。
+  # 先写 .tmp（600 自诞生）校验完整再转正名：pg_dump 失败（pipefail 捕获，哪怕是先吐了
+  # 部分字节再断）绝不留下顶着正式名号、被误报为成功的残缺备份。
+  if docker exec -e PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" semgravio-pg \
+       pg_dump -U "$DB_SERVICE" -d "$DB_SERVICE" | ( umask 077; gzip > "$BK_TMP" ) \
+     && gzip -t "$BK_TMP" \
+     && gzip -cd "$BK_TMP" | tail -n 5 | grep -q 'PostgreSQL database dump complete'; then
+    chmod 600 "$BK_TMP"
+    BK_FINAL="backups/semgravio_app_registry-$BK_STAMP.sql.gz"
+    n=1
+    while [ -e "$BK_FINAL" ]; do  # 同秒已有备份（如刚手工 dump 过）：不覆盖，追加序号
+      BK_FINAL="backups/semgravio_app_registry-$BK_STAMP-$n.sql.gz"; n=$((n+1))
+    done
+    mv "$BK_TMP" "$BK_FINAL"
+    echo "   ✓ $BK_FINAL（$(du -h "$BK_FINAL" | cut -f1)）"
+  else
+    rm -f "$BK_TMP"
+    echo "   ✗ 备份失败（pg_dump 未完整产出，已清理残缺文件，详见上方输出）——发布中止，应用未变更"
+    echo "     排障后重跑发布；确认要跳过备份用 SKIP_BACKUP=1（自担风险）"
+    exit 1
+  fi
+fi
 
 echo "-- 解包 $BUNDLE_FN（包内无 .env*，现网 env 不被覆盖）"
 tar -xzf "$HOME/$BUNDLE_FN" --strip-components=1

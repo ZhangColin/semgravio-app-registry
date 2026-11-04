@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# release 测试替身 ssh：不连接任何真实服务器。按调用形态分流：
+# release / server.sh 测试替身 ssh：不连接任何真实服务器。按调用形态分流：
+#   ssh -i KEY -o OPT user@host                      → 交互形态（server.sh sh）：连通即成功
 #   ssh -i KEY -o OPT user@host true                 → 连通性预检（STUB_SSH_FAIL=1 时失败）
 #   ssh -i KEY -o OPT user@host "VAR=val ... bash -s" <<脚本 → 在 $STUB_HOME 本地执行（HOME 指向 $STUB_HOME）
+#   ssh -i KEY -o OPT user@host "远端命令字符串"       → 同上本地执行（server.sh 的单串远端命令）
+# 每次调用参数整体记入 $STUB_SSH_LOG（已设置时），供断言 SSH 安全参数与远程命令形态。
 set -u
+
+[ -n "${STUB_SSH_LOG:-}" ] && printf '%s\n' "$*" >> "$STUB_SSH_LOG"
 
 if [ "${STUB_SSH_FAIL:-0}" = "1" ]; then
   exit 1
@@ -26,9 +31,10 @@ done
 # 预检形态：ssh ... host true
 [ "$cmd" = "true" ] && exit 0
 
-# 远程命令形态：VAR=val ... bash -s，脚本来自 stdin——本地替身以 $STUB_HOME 为家目录直接执行
-# （经 env 注入变量前缀；exec 不接受前导赋值，踩过：exec A=1 bash → not found）
+# 远程命令形态：VAR=val ... bash -s，脚本来自 stdin——本地替身以 $STUB_HOME 为家目录直接执行。
+# 用 eval（不用 exec env）：exec 会替换进程、吞掉同一命令列表里的后续 `&& echo` / `; cmd`
+# （server.sh 的单串远端命令常带 && 提示尾巴）；前导 VAR=val 走 shell 临时环境变量语法即可
 mkdir -p "${STUB_HOME:?STUB_HOME 未设置}"
 export HOME="$STUB_HOME"
 cd "$STUB_HOME"
-eval "exec env $cmd"
+eval "$cmd"

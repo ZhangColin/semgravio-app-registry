@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# release 主链命令替身验收（issue #27 AC14 ＋ #28 首次发布自动准备 env）——不连接真实生产
-# 服务器：ssh/scp/docker 全部走本目录 stub-bin/ 替身，「服务器」行为由 STUB_* 场景变量控制，
-# 远端脚本在一次性 $STUB_HOME 里本地执行。断言只看外部行为：退出码、终端输出、
-# 部署包内容、服务器侧 env 文件内容/权限、Compose 渲染配置——不断言脚本内部实现。
+# release 主链命令替身验收（issue #27 AC14 ＋ #28 首次发布自动准备 env ＋ #29 发布前数据库
+# 备份）——不连接真实生产服务器：ssh/scp/docker 全部走本目录 stub-bin/ 替身，「服务器」行为
+# 由 STUB_* 场景变量控制，远端脚本在一次性 $STUB_HOME 里本地执行。断言只看外部行为：退出码、
+# 终端输出、部署包内容、服务器侧 env 文件内容/权限、Compose 渲染配置——不断言脚本内部实现。
 #
 # 覆盖：① 部署包（jar/REVISION/无 env 无 secret/LF）② 脏工作区门禁 ③ Compose 无端口暴露
 #       ④ Redis requirepass 契约 ⑤ SSH/infra/webnet/env 门禁 ⑥ 健康失败非零 + 成功路径
-#       ⑦ 首次发布自动准备 env（ensure-db-user 契约/凭据正本/全量校验/secret 不落地输出/重复发布复用）。
+#       ⑦ 首次发布自动准备 env（ensure-db-user 契约/凭据正本/全量校验/secret 不落地输出/
+#       重复发布复用）⑧ 发布前备份（默认备份/SKIP_BACKUP 跳过/备份失败中止——server.sh
+#       运维子命令的验收在 server-ops.sh）。
 #
 # 注意：① 打包用真 Maven 构建且要求干净工作区（部署包来自已提交源码），
-#       ⑤⑥⑦ 复用①/② 产出的 dist/ 包（SKIP_BUILD=1）。本脚本所有临时文件 trap 清理，
+#       ⑤⑥⑦⑧ 复用①/② 产出的 dist/ 包（SKIP_BUILD=1）。本脚本所有临时文件 trap 清理，
 #       中途失败不会弄脏工作区。
 # 用法（仓库根）：bash deploy/tests/release-chain.sh
 set -uo pipefail
@@ -17,10 +19,6 @@ cd "$(dirname "$0")/../.."
 ROOT=$PWD
 STUB_BIN="$ROOT/deploy/tests/stub-bin"
 JAR_NAME="semgravio-app-registry-1.0.0-SNAPSHOT.jar"
-
-ok()   { printf '  ✓ %s\n' "$*"; }
-die()  { printf '✗ %s\n' "$*" >&2; exit 1; }
-phase(){ printf '\n== %s ==\n' "$*"; }
 
 # 合法 32 字节 master key（Base64）——⑥⑦ 场景 env 夹具共用；生成值只进 env，不进断言文本
 MK_VALID=$(openssl rand -base64 32)
@@ -34,19 +32,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-new_stub_home() { # 每个场景独立虚拟家目录 + docker 调用日志 + 密钥
-  local home
-  home=$(mktemp -d "$TMP_BASE/stub-home.XXXXXX")
-  : > "$home/docker.log"
-  touch "$home/id_key"
-  STUB_HOME="$home"
-  STUB_DOCKER_LOG="$home/docker.log"
-  STUB_KEY="$home/id_key"
-  export STUB_HOME STUB_DOCKER_LOG STUB_KEY   # 替身经 release.sh 子进程链取用，必须导出
-}
+. "$ROOT/deploy/tests/lib.sh"   # ok/die/phase + CHMOD_EFFECTIVE + new_stub_home
 
 # ---------------------------------------------------------------- ① 打包（真构建）
-phase "1/7 部署包（Maven 真构建，须干净工作区）"
+phase "1/8 部署包（Maven 真构建，须干净工作区）"
 [ -z "$(git status --porcelain)" ] || die "工作区不干净，先提交再跑（部署包来自已提交源码）"
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || die "拒绝在 main 上打包发布"
 bundle_out=$(bash deploy/build-bundle.sh 2>&1) || { echo "$bundle_out" >&2; die "build-bundle.sh 退出非零"; }
@@ -61,10 +50,13 @@ grep -qE "(^|/)target/$JAR_NAME\$" <<<"$entries" || die "包内缺可执行 jar"
 grep -qE '(^|/)Dockerfile$' <<<"$entries" || die "包内缺 Dockerfile"
 grep -qE '(^|/)docker-compose\.prod\.yml$' <<<"$entries" || die "包内缺 docker-compose.prod.yml"
 grep -qE '(^|/)deploy/release\.sh$' <<<"$entries" || die "包内缺 deploy/release.sh"
+grep -qE '(^|/)deploy/server\.sh$' <<<"$entries" || die "包内缺 deploy/server.sh（运维入口）"
 grep -qE '(^|/)\.env\.production\.example$' <<<"$entries" || die "包内缺 env 模板"
 leak=$(grep -Ei '(^|/)(\.env\.production|\.env\.local)$|\.pem$|id_rsa' <<<"$entries" || true)
 [ -z "$leak" ] || die "包内出现 env/secret 形态文件：$leak"
-ok "包内容：jar + Dockerfile + compose + 发布脚本 + env 模板 + REVISION；无 .env*/密钥"
+# 部署包不得携带 backups/（解包 --strip-components=1 落进应用目录，会覆盖现网备份正本）
+! grep -qE '(^|/)backups/' <<<"$entries" || die "包内出现 backups/（会覆盖服务器备份目录）"
+ok "包内容：jar + Dockerfile + compose + 发布/运维脚本 + env 模板 + REVISION；无 .env*/密钥/backups"
 
 EXTRACT="$TMP_BASE/extract"
 mkdir -p "$EXTRACT"
@@ -87,7 +79,7 @@ rev=$(cat "$PKG_ROOT/REVISION")
 ok "REVISION 与 HEAD 一致：${rev:0:8}"
 
 # ---------------------------------------------------------------- ② 脏工作区门禁
-phase "2/7 脏工作区门禁（ALLOW_DIRTY 逃生开关）"
+phase "2/8 脏工作区门禁（ALLOW_DIRTY 逃生开关）"
 touch "$ROOT/.rehearsal-dirty-probe"
 dirty_out=$(ALLOW_DIRTY=0 SKIP_MVN=1 bash deploy/build-bundle.sh 2>&1); dirty_rc=$?
 [ "$dirty_rc" -ne 0 ] || die "脏工作区竟然打包成功"
@@ -106,7 +98,7 @@ ok "ALLOW_DIRTY=1 放行但明确警告；源码树仍按 HEAD，脏文件不入
 rm -f "$ROOT/.rehearsal-dirty-probe"
 
 # ---------------------------------------------------------------- ③ Compose 外部行为
-phase "3/7 Compose 外部行为（render 断言：内网 only）"
+phase "3/8 Compose 外部行为（render 断言：内网 only）"
 command -v docker >/dev/null 2>&1 || die "docker 不可用（compose render 断言需要）"
 if [ ! -f "$ROOT/.env.production" ]; then touch "$ROOT/.env.production"; CREATED_ENV=1; fi
 rendered=$(docker compose -f docker-compose.prod.yml config 2>/dev/null) \
@@ -125,7 +117,7 @@ grep -q 'max-size' <<<"$rendered" || die "缺日志轮转"
 ok "无宿主端口、external webnet、显式 name/image/container、重启/健康/日志轮转齐全、无旧名/previewnet"
 
 # ---------------------------------------------------------------- ④ Redis requirepass 契约
-phase "4/7 Redis requirepass 契约"
+phase "4/8 Redis requirepass 契约"
 grep -q 'password: ${REDIS_PASSWORD}' src/main/resources/application-prod.yml \
   || die "application-prod.yml 未显式绑定 REDIS_PASSWORD"
 grep -q '^REDIS_PASSWORD=' .env.production.example \
@@ -149,7 +141,7 @@ docker rm -f ar-rehearsal-redis >/dev/null
 ok "requirepass 契约：带密码 PONG、无密码 NOAUTH"
 
 # ---------------------------------------------------------------- ⑤ 门禁（ssh/scp/docker 替身）
-phase "5/7 SSH/infra/webnet/env 门禁（应用变更前非零退出）"
+phase "5/8 SSH/infra/webnet/env 门禁（应用变更前非零退出）"
 [ -n "${BUNDLE:-}" ] || die "① 未产出包，无法继续"
 
 run_release() { # 场景 env 由调用方 export；统一覆盖连接参数 + SKIP_BUILD 复用①的包
@@ -219,7 +211,7 @@ EOF
 }
 
 # ---------------------------------------------------------------- ⑥ 健康验收 + 成功路径
-phase "6/7 健康验收（失败非零 + 日志入口）与成功路径"
+phase "6/8 健康验收（失败非零 + 日志入口）与成功路径"
 
 new_stub_home
 mkdir -p "$STUB_HOME/semgravio-app-registry"
@@ -233,6 +225,9 @@ ok "健康验收失败 → 非零退出 + 日志入口提示"
 new_stub_home
 mkdir -p "$STUB_HOME/semgravio-app-registry"
 write_valid_env "$STUB_HOME/semgravio-app-registry/.env.production"
+# 预置一份既有备份：发布解包不得覆盖/清除服务器备份目录（#29）
+mkdir -p "$STUB_HOME/semgravio-app-registry/backups"
+touch "$STUB_HOME/semgravio-app-registry/backups/pre-existing.sql.gz"
 out=$(run_release 2>&1); rc=$?
 [ "$rc" -eq 0 ] || { echo "$out" >&2; die "全绿场景应零退出"; }
 grep -q "REVISION:" <<<"$out" || die "成功输出缺 REVISION：$out"
@@ -242,16 +237,21 @@ grep -q 'compose -f docker-compose.prod.yml up -d --build' "$STUB_DOCKER_LOG" \
   || die "compose 未按 up -d --build 调用"
 ! grep -q ' down ' "$STUB_DOCKER_LOG" || die "不得先 down 旧容器"
 [ -f "$STUB_HOME/semgravio-app-registry/REVISION" ] || die "成功后未解包"
-ok "成功路径：解包 → compose up -d --build（不先 down）→ 健康验收 → 完成"
+# 发布前备份（#29）：默认产出，先于应用变更（pg_dump 早于 compose），既有备份不被解包覆盖
+BK_DIR="$STUB_HOME/semgravio-app-registry/backups"
+bk_file=$(ls "$BK_DIR"/semgravio_app_registry-[0-9]*.sql.gz 2>/dev/null | head -1)
+[ -n "$bk_file" ] || die "默认发布未产出时间戳备份文件"
+[ -f "$BK_DIR/pre-existing.sql.gz" ] || die "既有备份被部署包解包覆盖/清除"
+gunzip -c "$bk_file" | grep -q 'PostgreSQL database dump complete' || die "备份内容不完整（缺 complete 收尾）"
+grep -q -- '-e PGPASSWORD=some-db-pw semgravio-pg pg_dump -U semgravio_app_registry -d semgravio_app_registry' \
+  "$STUB_DOCKER_LOG" || die "备份边界/凭据不对（应为本服务库+角色+env 密码）：$(grep pg_dump "$STUB_DOCKER_LOG")"
+dump_ln=$(grep -n pg_dump "$STUB_DOCKER_LOG" | head -1 | cut -d: -f1)
+compose_ln=$(grep -n '^compose' "$STUB_DOCKER_LOG" | head -1 | cut -d: -f1)
+[ "${dump_ln:-0}" -lt "${compose_ln:-9999}" ] || die "备份未先于应用变更（pg_dump 第${dump_ln:-?}行 vs compose 第${compose_ln:-?}行）"
+ok "成功路径：发布前备份 → 解包 → compose up -d --build（不先 down）→ 健康验收 → 完成"
 
 # ---------------------------------------------------------------- ⑦ 首次发布自动准备 env（#28）
-phase "7/7 首次发布自动准备 env（ensure-db-user 契约 / 凭据正本 / 全量校验 / secret 不落地）"
-
-# chmod 权限位探测：Git Bash（noacl 挂载）下 chmod 为建议性、stat 恒报 644——
-# 本机替身环境跳过 600 位断言；Linux 服务器/CI 上照常断言（脚本始终 chmod 600 落盘）
-chmod_probe=$(mktemp); chmod 600 "$chmod_probe" 2>/dev/null || true
-if [ "$(stat -c '%a' "$chmod_probe" 2>/dev/null || echo '?')" = "600" ]; then CHMOD_EFFECTIVE=1; else CHMOD_EFFECTIVE=0; fi
-rm -f "$chmod_probe"
+phase "7/8 首次发布自动准备 env（ensure-db-user 契约 / 凭据正本 / 全量校验 / secret 不落地）"
 
 # 共享 infra 最小替身：凭据正本（超管密码只用于断言发布链绝不取用）＋ ensure-db-user 契约替身
 stub_infra() {
@@ -303,11 +303,14 @@ master_key=$(grep '^APP_REGISTRY_API_SECRET_MASTER_KEY=' "$ENV_FILE" | cut -d= -
 helper_log=$(cat "$STUB_HOME/ensure-db-user.log")
 grep -q 'svc=semgravio_app_registry' <<<"$helper_log" || die "ensure-db-user 未被调用：$helper_log"
 grep -q "db_password=$db_pw" <<<"$helper_log" || die "ensure-db-user 未收到生成的库密码"
+# 首次发布同样默认备份，且用的是本次自动生成的库密码（#28+#29 衔接）
+grep -q -- "-e PGPASSWORD=$db_pw semgravio-pg pg_dump -U semgravio_app_registry -d semgravio_app_registry" \
+  "$STUB_DOCKER_LOG" || die "首次发布的发布前备份未用自动生成的库密码：$(grep pg_dump "$STUB_DOCKER_LOG")"
 ! grep -q 'POSTGRES_PASSWORD' <<<"$out" || die "超管密码字样出现在发布终端输出"
 ! grep -qF "$db_pw" <<<"$out" || die "数据库密码泄漏进发布终端输出"
 ! grep -qF "$master_key" <<<"$out" || die "master key 泄漏进发布终端输出"
 ! grep -qF 'infra-redis-secret' <<<"$out" || die "Redis 密码泄漏进发布终端输出"
-ok "首次发布：ensure-db-user 自动建号 + env 600 落盘 + 正本取 Redis 密码；三类 secret 均不在终端输出"
+ok "首次发布：ensure-db-user 自动建号 + env 600 落盘 + 正本取 Redis 密码 + 建号后即备份；三类 secret 均不在终端输出"
 
 # 重复发布：复用既有 env 与全部凭据，不重置 master key、不重跑建号、不被部署包覆盖
 cp "$ENV_FILE" "$TMP_BASE/env-first.bak"
@@ -315,7 +318,8 @@ out=$(run_release 2>&1); rc=$?
 [ "$rc" -eq 0 ] || { echo "$out" >&2; die "重复发布应零退出"; }
 cmp -s "$ENV_FILE" "$TMP_BASE/env-first.bak" || die "重复发布后 env 被改动（master key 终身稳定，#26 决策 10）"
 [ "$(grep -c '' "$STUB_HOME/ensure-db-user.log")" -eq 1 ] || die "重复发布不应重跑 ensure-db-user（幂等复用）"
-ok "重复发布：env 逐字节不变、ensure-db-user 不重跑"
+[ "$(grep -c 'pg_dump' "$STUB_DOCKER_LOG")" -eq 2 ] || die "每次发布都应备份一次（两次发布应有两次 pg_dump）"
+ok "重复发布：env 逐字节不变、ensure-db-user 不重跑、每次发布前都备份"
 
 # 首次发布：infra 凭据正本缺 REDIS_PASSWORD 行 → 明确报错非零退出（管道无匹配不得 set -e 静默终止）
 new_stub_home
@@ -340,6 +344,7 @@ vfail() { # $1=描述 $2=env 内容 $3=预期输出关键字
   [ "$rc" -ne 0 ] || die "$1：应非零退出"
   grep -q "$3" <<<"$out" || die "$1：未提示 $3：$out"
   no_compose_called || die "$1：校验失败后仍动了应用（compose 被调用）"
+  ! grep -q 'pg_dump' "$STUB_DOCKER_LOG" || die "$1：env 校验失败不应已跑备份"
   cmp -s "$STUB_HOME/semgravio-app-registry/.env.production" "$TMP_BASE/vfail.bak" \
     || die "$1：校验失败改动了 env（绝不允许自动换 master key“修复”）"
   ok "$1 → 非零退出 + env 原样不动"
@@ -359,18 +364,45 @@ vfail "缺 SPRING_DATASOURCE_PASSWORD" \
   "$(printf '%s' "$valid_env" | grep -v '^SPRING_DATASOURCE_PASSWORD=')" \
   "SPRING_DATASOURCE_PASSWORD"
 
+# ---------------------------------------------------------------- ⑧ 发布前备份开关与失败中止（#29）
+phase "8/8 发布前备份（SKIP_BACKUP 跳过 / 备份失败中止）"
+
+new_stub_home
+mkdir -p "$STUB_HOME/semgravio-app-registry"
+write_valid_env "$STUB_HOME/semgravio-app-registry/.env.production"
+out=$(SKIP_BACKUP=1 run_release 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "$out" >&2; die "SKIP_BACKUP=1 发布应零退出"; }
+! grep -q 'pg_dump' "$STUB_DOCKER_LOG" || die "SKIP_BACKUP=1 仍执行了 pg_dump"
+grep -q "跳过" <<<"$out" || die "SKIP_BACKUP=1 未在输出明示跳过：$out"
+grep -q '^compose' "$STUB_DOCKER_LOG" || die "SKIP_BACKUP=1 不应影响后续发布链"
+ok "SKIP_BACKUP=1 → 显式跳过发布前备份，发布链照常"
+
+new_stub_home
+mkdir -p "$STUB_HOME/semgravio-app-registry"
+write_valid_env "$STUB_HOME/semgravio-app-registry/.env.production"
+out=$(STUB_DUMP_FAIL=1 run_release 2>&1); rc=$?
+[ "$rc" -ne 0 ] || { echo "$out" >&2; die "备份失败应非零退出（不得误报成功）"; }
+grep -q "备份失败" <<<"$out" || die "备份失败未明确报错：$out"
+no_compose_called || die "备份失败后仍动了应用（compose 被调用）"
+[ ! -f "$STUB_HOME/semgravio-app-registry/REVISION" ] || die "备份失败却已解包应用"
+leftover=$(find "$STUB_HOME/semgravio-app-registry/backups" \
+             \( -name '*.sql.gz' -o -name '*.tmp' \) -print 2>/dev/null || true)
+[ -z "$leftover" ] || die "备份失败留下残缺/临时文件（可能被误报为成功）：$leftover"
+ok "pg_dump 中途失败 → 应用变更前中止（无 compose/无解包/无残缺备份留存）"
+
 # ---------------------------------------------------------------- 旧入口退役
 phase "附：旧发布入口退役"
 [ ! -e publish.sh ] && [ ! -e deploy.sh ] || die "旧密码式 publish.sh / 旧 deploy.sh 必须删除"
 ! git ls-files | grep -qE '^(publish|deploy)\.sh$' || die "Git 中仍跟踪旧入口"
 # 旧名不得作为身份/命令实际使用；注释里提及旧名（说明清理口径）不算违规——剥掉注释行再扫
-legacy=$(git grep -h 'semgravio-openapi' -- deploy/build-bundle.sh deploy/release.sh deploy/tests/stub-bin \
-    docker-compose.prod.yml Dockerfile .env.production.example | grep -vE '^[[:space:]]*#' || true)
+legacy=$(git grep -h 'semgravio-openapi' -- deploy/build-bundle.sh deploy/release.sh deploy/server.sh \
+    deploy/tests/stub-bin docker-compose.prod.yml Dockerfile .env.production.example \
+    | grep -vE '^[[:space:]]*#' || true)
 [ -z "$legacy" ] || die "发布链文件仍实际使用旧名 semgravio-openapi：$legacy"
 # 注释里声明「不用 sshpass / 不关闭主机密钥校验」不算违规——剥掉注释行再扫
-bad_ssh=$(grep -hE 'sshpass|StrictHostKeyChecking' deploy/build-bundle.sh deploy/release.sh \
+bad_ssh=$(grep -hE 'sshpass|StrictHostKeyChecking' deploy/build-bundle.sh deploy/release.sh deploy/server.sh \
   | grep -vE '^[[:space:]]*#' || true)
 [ -z "$bad_ssh" ] || die "发布脚本仍使用 sshpass 或动主机密钥校验：$bad_ssh"
-ok "publish.sh/deploy.sh 已删除；发布链无旧名、无 sshpass、保留主机密钥校验"
+ok "publish.sh/deploy.sh 已删除；发布链（含运维入口）无旧名、无 sshpass、保留主机密钥校验"
 
-printf '\nrelease 主链验收全部通过 ✅（部署包/脏工作区/Compose/Redis/门禁/健康/首次发布自动准备 env）\n'
+printf '\nrelease 主链验收全部通过 ✅（部署包/脏工作区/Compose/Redis/门禁/健康/首次发布自动准备 env/发布前备份）\n'
