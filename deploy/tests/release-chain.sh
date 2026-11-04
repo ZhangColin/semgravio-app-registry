@@ -232,7 +232,8 @@ ok "成功路径：解包 → compose up -d --build（不先 down）→ 健康�
 phase "附：旧发布入口退役"
 [ ! -e publish.sh ] && [ ! -e deploy.sh ] || die "旧密码式 publish.sh / 旧 deploy.sh 必须删除"
 ! git ls-files | grep -qE '^(publish|deploy)\.sh$' || die "Git 中仍跟踪旧入口"
-! git grep -q 'semgravio-openapi' -- deploy docker-compose.prod.yml Dockerfile .env.production.example \
+! git grep -q 'semgravio-openapi' -- deploy/build-bundle.sh deploy/release.sh deploy/tests/stub-bin \
+    docker-compose.prod.yml Dockerfile .env.production.example \
   || die "发布链文件仍出现旧名 semgravio-openapi"
 ! grep -rEq 'sshpass|StrictHostKeyChecking=no' deploy --include='*.sh' \
   || die "发布链仍使用 sshpass 或关闭主机密钥校验"
