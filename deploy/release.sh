@@ -22,6 +22,13 @@
 # 备份失败在解包/重建前非零退出（先写 .tmp 校验完整再转正名，不留下被误报为成功的残缺备份）。
 # 日常运维（状态/日志/重启/手工备份/冒烟/登录）用 deploy/server.sh。
 #
+# 凭证反馈（#30）：健康验收通过后，只采集本次启动时间窗（compose up 前的 UTC 时间戳起，
+# docker logs --since）内的应用日志，识别平台 seed 的 admin-console created/rotated 事件，
+# 把明文 apiSecret 显示在发布终端（apiKey＝appCode＝admin-console；apiSecret 只进终端，
+# 不落 Git/部署包/任何文件）。无事件时如实说明 seed 幂等跳过；docker logs 失败不拖垮已健康
+# 的发布，只提示无法确认并给出人工自查命令。发布工具不修改 seed 逻辑、不从数据库密文反推
+# secret、也不自动向 admin 服务或外部系统发送凭证。
+#
 # 可覆盖变量（默认与 aiplatform 对齐）：
 #   SERVER_HOST=3.70.172.160   SERVER_USER=ubuntu   SSH_KEY=$HOME/ssh/semgravio-eu-1.pem
 #   REMOTE_DIR=semgravio-app-registry（相对服务器 $HOME；绝对路径以 / 开头也可）
@@ -62,7 +69,7 @@ BASENAME=$(basename "$BUNDLE")
 echo "== 2/4 上传（$(du -h "$BUNDLE" | cut -f1) → $REMOTE） =="
 scp -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=15 "$BUNDLE" "$REMOTE:"
 
-echo "== 3/4 服务器：infra 门禁 → env 首次准备/校验 → 发布前备份 → 解包 → compose up --build → 健康验收 =="
+echo "== 3/4 服务器：infra 门禁 → env 首次准备/校验 → 发布前备份 → 解包 → compose up --build → 健康验收 → 凭证反馈 =="
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
   "BUNDLE_FN=$BASENAME REMOTE_DIR=$REMOTE_DIR INFRA_DIR=$INFRA_DIR HEALTH_WAIT_SECONDS=${HEALTH_WAIT_SECONDS:-180} SKIP_BACKUP=${SKIP_BACKUP:-0} bash -s" <<'REMOTE'
 set -euo pipefail
@@ -181,6 +188,9 @@ rm "$HOME/$BUNDLE_FN"
 echo "   REVISION: $(cat REVISION)"
 
 echo "-- 构建并启动（compose up -d --build；不先 down 旧容器——重启策略/健康检查/日志轮转见 compose）"
+# #30：凭证反馈时间窗起点（RFC3339 UTC——docker logs --since 按绝对时刻过滤，取 UTC 免时区歧义）。
+# 从此刻起采集，容器未被 compose 重建时也不会把旧启动的凭证日志一并取回
+SINCE_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 docker compose -f docker-compose.prod.yml up -d --build
 
 echo "-- 健康验收（容器内 actuator/health，最长 ${HEALTH_WAIT_SECONDS}s；期间 Flyway 在跑迁移属正常）"
@@ -191,6 +201,39 @@ until docker exec semgravio-app-registry curl -sf -o /dev/null http://localhost:
   sleep 2
 done
 echo "   ✓ semgravio-app-registry healthy"
+
+echo "-- 凭证反馈（#30：只认本次启动时间窗内平台 seed 的 created/rotated 事件；apiSecret 明文只进终端，不落任何文件）"
+# 凭证仍由应用内平台 seed 生成；此处只识别日志事件。docker logs 失败≠发布失败（健康已过）：
+# 输出区分「无新凭证事件」与「无法检查日志」，绝不把已健康的发布伪装成凭证生成成功
+# seed_re 与 PlatformSeedAppService 的日志措辞保持一致（grep 过滤与 sed 提取共用，改一处即可）
+seed_re='admin-console seed (created|rotated), apiSecret: '
+if seed_window=$(docker logs --since "$SINCE_TS" semgravio-app-registry 2>&1); then
+  seed_events=$(grep -E "$seed_re" <<<"$seed_window" || true)
+  if [ -z "$seed_events" ]; then
+    echo "   · 本次启动无新凭证事件（seed 幂等跳过）：admin-console 沿用既有 apiKey/apiSecret，配置无需改动"
+    echo "     若首次发布/刚换过 master key 却看到此行（健康探活可早于 seed 落日志），稍候用同条命令自查：docker logs --since $SINCE_TS semgravio-app-registry 2>&1 | grep 'admin-console seed'"
+  else
+    while IFS= read -r ev_line; do
+      ev_type=$(sed -nE "s/.*${seed_re}.*/\1/p" <<<"$ev_line")
+      ev_secret=$(sed -nE "s/.*${seed_re}([^[:space:]]+).*/\2/p" <<<"$ev_line")
+      [ -n "$ev_type" ] && [ -n "$ev_secret" ] || continue
+      if [ "$ev_type" = "created" ]; then
+        echo "   ★ admin-console ApiKey 首次创建（平台 seed）——请立即把以下凭证配置到 admin-console 的签名客户端（HMAC 验签）："
+        echo "       appCode    ：admin-console"
+        echo "       apiKey     ：admin-console（＝appCode，即请求头 X-App-Id）"
+        echo "       apiSecret  ：$ev_secret"
+      else
+        echo "   ★ admin-console apiSecret 已轮换（master key 变更后平台 seed 自动轮换）——请立即更新 admin-console 签名客户端配置："
+        echo "       apiKey     ：admin-console（不变）"
+        echo "       apiSecret  ：$ev_secret（新值，旧值已作废）"
+      fi
+      echo "     提示：apiSecret 仅此处显示一次（库里只存 AES-GCM 密文），请立即存入密码管理器"
+    done <<<"$seed_events"
+  fi
+else
+  echo "   ⚠ 无法检查应用日志（docker logs 失败）：发布已健康，但无法确认本次启动是否产生新凭证"
+  echo "     请尽快人工检查：docker logs --since $SINCE_TS semgravio-app-registry 2>&1 | grep 'admin-console seed'"
+fi
 REMOTE
 
 echo "== 4/4 完成：$BASENAME 已上线 =="

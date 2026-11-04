@@ -7,6 +7,18 @@
 #   STUB_HEALTH_FAIL=1                        → 应用 actuator 探活（docker exec ... curl）恒失败
 #   STUB_DUMP_FAIL=1                          → pg_dump 先吐残缺字节再失败（检验 pipefail＋
 #                                              临时文件保护：残缺产出不得顶着正式备份名留存）
+#   STUB_SEED_CREATED / STUB_SEED_ROTATED=1   → docker logs --since 时间窗内出现平台 seed 的
+#                                              created/rotated 事件（release #30 凭证反馈）；
+#                                              事件里的 apiSecret 取自 STUB_SEED_CREATED_SECRET /
+#                                              STUB_SEED_ROTATED_SECRET（测试运行时注入随机值，
+#                                              不用字面量——部署包含 HEAD 全仓源码，字面量会被
+#                                              「明文不落任何文件」的全目录扫描误伤）
+#   STUB_SEED_OLD=1                           → 仅不带 --since 的全量 logs 调用回放历史 created
+#                                              事件（检验发布只看时间窗、不重放旧凭证日志）
+#   STUB_LOG_DECOY="..."                      → 时间窗日志追加一行含给定 secret 的噪声
+#                                              （检验凭证反馈不捎带其他 secret）
+#   STUB_LOGS_FAIL=1                          → docker logs 失败（检验日志不可用≠无事件、
+#                                              不误报凭证成功、也不拖垮已健康的发布）
 set -u
 
 log() { echo "$*" >> "${STUB_DOCKER_LOG:?STUB_DOCKER_LOG 未设置}"; }
@@ -69,10 +81,37 @@ case "$cmd" in
       "unrelated-app            Up 1 hour              other:latest"
     ;;
   logs)
-    # 形态：docker logs -f --tail 200 <container>（server.sh logs）——回两行即退（不真跟随）
+    # 两种形态：
+    #   docker logs -f --tail 200 <container>（server.sh logs）——回两行即退（不真跟随）
+    #   docker logs --since <RFC3339> <container>（release #30 凭证反馈）——按场景旋钮回放
     log "logs $*"
-    echo "stub-log-line-1"
-    echo "stub-log-line-2"
+    if [ "${STUB_LOGS_FAIL:-0}" = "1" ]; then
+      echo "stub: 无法读取容器日志（模拟 docker logs 失败）" >&2
+      exit 1
+    fi
+    case " $* " in
+      *--since*)
+        # 本次启动时间窗内：默认空窗（seed 幂等跳过），按旋钮回放事件/噪声；
+        # 事件 apiSecret 一律取注入值（:? 显式要求，防测试漏设时静默回放假值）
+        if [ "${STUB_SEED_CREATED:-0}" = "1" ]; then
+          echo "2026-11-04T22:45:01.123+00:00  INFO 1 --- [main] c.s.a.application.PlatformSeedAppService : admin-console seed created, apiSecret: ${STUB_SEED_CREATED_SECRET:?STUB_SEED_CREATED_SECRET 未设置}"
+        fi
+        if [ "${STUB_SEED_ROTATED:-0}" = "1" ]; then
+          echo "2026-11-04T22:45:02.456+00:00  INFO 1 --- [main] c.s.a.application.PlatformSeedAppService : admin-console seed rotated, apiSecret: ${STUB_SEED_ROTATED_SECRET:?STUB_SEED_ROTATED_SECRET 未设置}"
+        fi
+        if [ -n "${STUB_LOG_DECOY:-}" ]; then
+          echo "2026-11-04T22:45:03.789+00:00  WARN 1 --- [main] c.s.example.ConfigNoise : config dump $STUB_LOG_DECOY"
+        fi
+        ;;
+      *)
+        # 全量日志（发布不得走这条路径取凭证）：按旋钮回放历史凭证日志
+        if [ "${STUB_SEED_OLD:-0}" = "1" ]; then
+          echo "2026-11-01T08:00:00.000+00:00  INFO 1 --- [main] c.s.a.application.PlatformSeedAppService : admin-console seed created, apiSecret: stub-old-secret-from-previous-boot"
+        fi
+        echo "stub-log-line-1"
+        echo "stub-log-line-2"
+        ;;
+    esac
     ;;
   restart)
     # 形态：docker restart <容器...>（server.sh restart）——只记调用；restart 只允许

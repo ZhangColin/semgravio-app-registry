@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # release 主链命令替身验收（issue #27 AC14 ＋ #28 首次发布自动准备 env ＋ #29 发布前数据库
-# 备份）——不连接真实生产服务器：ssh/scp/docker 全部走本目录 stub-bin/ 替身，「服务器」行为
-# 由 STUB_* 场景变量控制，远端脚本在一次性 $STUB_HOME 里本地执行。断言只看外部行为：退出码、
-# 终端输出、部署包内容、服务器侧 env 文件内容/权限、Compose 渲染配置——不断言脚本内部实现。
+# 备份 ＋ #30 admin-console apiSecret 凭证反馈）——不连接真实生产服务器：ssh/scp/docker
+# 全部走本目录 stub-bin/ 替身，「服务器」行为由 STUB_* 场景变量控制，远端脚本在一次性
+# $STUB_HOME 里本地执行。断言只看外部行为：退出码、终端输出、部署包内容、服务器侧 env
+# 文件内容/权限、Compose 渲染配置——不断言脚本内部实现。
 #
 # 覆盖：① 部署包（jar/REVISION/无 env 无 secret/LF）② 脏工作区门禁 ③ Compose 无端口暴露
 #       ④ Redis requirepass 契约 ⑤ SSH/infra/webnet/env 门禁 ⑥ 健康失败非零 + 成功路径
 #       ⑦ 首次发布自动准备 env（ensure-db-user 契约/凭据正本/全量校验/secret 不落地输出/
 #       重复发布复用）⑧ 发布前备份（默认备份/SKIP_BACKUP 跳过/备份失败中止——server.sh
-#       运维子命令的验收在 server-ops.sh）。
+#       运维子命令的验收在 server-ops.sh）⑨ 凭证反馈（created/rotated/无事件/日志不可用，
+#       --since 时间窗不重放历史、不捎带其他 secret）。
 #
 # 注意：① 打包用真 Maven 构建且要求干净工作区（部署包来自已提交源码），
 #       ⑤⑥⑦⑧ 复用①/② 产出的 dist/ 包（SKIP_BUILD=1）。本脚本所有临时文件 trap 清理，
@@ -35,7 +37,7 @@ trap cleanup EXIT
 . "$ROOT/deploy/tests/lib.sh"   # ok/die/phase + CHMOD_EFFECTIVE + new_stub_home
 
 # ---------------------------------------------------------------- ① 打包（真构建）
-phase "1/8 部署包（Maven 真构建，须干净工作区）"
+phase "1/9 部署包（Maven 真构建，须干净工作区）"
 [ -z "$(git status --porcelain)" ] || die "工作区不干净，先提交再跑（部署包来自已提交源码）"
 [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] || die "拒绝在 main 上打包发布"
 bundle_out=$(bash deploy/build-bundle.sh 2>&1) || { echo "$bundle_out" >&2; die "build-bundle.sh 退出非零"; }
@@ -79,7 +81,7 @@ rev=$(cat "$PKG_ROOT/REVISION")
 ok "REVISION 与 HEAD 一致：${rev:0:8}"
 
 # ---------------------------------------------------------------- ② 脏工作区门禁
-phase "2/8 脏工作区门禁（ALLOW_DIRTY 逃生开关）"
+phase "2/9 脏工作区门禁（ALLOW_DIRTY 逃生开关）"
 touch "$ROOT/.rehearsal-dirty-probe"
 dirty_out=$(ALLOW_DIRTY=0 SKIP_MVN=1 bash deploy/build-bundle.sh 2>&1); dirty_rc=$?
 [ "$dirty_rc" -ne 0 ] || die "脏工作区竟然打包成功"
@@ -98,7 +100,7 @@ ok "ALLOW_DIRTY=1 放行但明确警告；源码树仍按 HEAD，脏文件不入
 rm -f "$ROOT/.rehearsal-dirty-probe"
 
 # ---------------------------------------------------------------- ③ Compose 外部行为
-phase "3/8 Compose 外部行为（render 断言：内网 only）"
+phase "3/9 Compose 外部行为（render 断言：内网 only）"
 command -v docker >/dev/null 2>&1 || die "docker 不可用（compose render 断言需要）"
 if [ ! -f "$ROOT/.env.production" ]; then touch "$ROOT/.env.production"; CREATED_ENV=1; fi
 rendered=$(docker compose -f docker-compose.prod.yml config 2>/dev/null) \
@@ -117,7 +119,7 @@ grep -q 'max-size' <<<"$rendered" || die "缺日志轮转"
 ok "无宿主端口、external webnet、显式 name/image/container、重启/健康/日志轮转齐全、无旧名/previewnet"
 
 # ---------------------------------------------------------------- ④ Redis requirepass 契约
-phase "4/8 Redis requirepass 契约"
+phase "4/9 Redis requirepass 契约"
 grep -q 'password: ${REDIS_PASSWORD}' src/main/resources/application-prod.yml \
   || die "application-prod.yml 未显式绑定 REDIS_PASSWORD"
 grep -q '^REDIS_PASSWORD=' .env.production.example \
@@ -141,7 +143,7 @@ docker rm -f ar-rehearsal-redis >/dev/null
 ok "requirepass 契约：带密码 PONG、无密码 NOAUTH"
 
 # ---------------------------------------------------------------- ⑤ 门禁（ssh/scp/docker 替身）
-phase "5/8 SSH/infra/webnet/env 门禁（应用变更前非零退出）"
+phase "5/9 SSH/infra/webnet/env 门禁（应用变更前非零退出）"
 [ -n "${BUNDLE:-}" ] || die "① 未产出包，无法继续"
 
 run_release() { # 场景 env 由调用方 export；统一覆盖连接参数 + SKIP_BUILD 复用①的包
@@ -211,7 +213,7 @@ EOF
 }
 
 # ---------------------------------------------------------------- ⑥ 健康验收 + 成功路径
-phase "6/8 健康验收（失败非零 + 日志入口）与成功路径"
+phase "6/9 健康验收（失败非零 + 日志入口）与成功路径"
 
 new_stub_home
 mkdir -p "$STUB_HOME/semgravio-app-registry"
@@ -251,7 +253,7 @@ compose_ln=$(grep -n '^compose' "$STUB_DOCKER_LOG" | head -1 | cut -d: -f1)
 ok "成功路径：发布前备份 → 解包 → compose up -d --build（不先 down）→ 健康验收 → 完成"
 
 # ---------------------------------------------------------------- ⑦ 首次发布自动准备 env（#28）
-phase "7/8 首次发布自动准备 env（ensure-db-user 契约 / 凭据正本 / 全量校验 / secret 不落地）"
+phase "7/9 首次发布自动准备 env（ensure-db-user 契约 / 凭据正本 / 全量校验 / secret 不落地）"
 
 # 共享 infra 最小替身：凭据正本（超管密码只用于断言发布链绝不取用）＋ ensure-db-user 契约替身
 stub_infra() {
@@ -365,7 +367,7 @@ vfail "缺 SPRING_DATASOURCE_PASSWORD" \
   "SPRING_DATASOURCE_PASSWORD"
 
 # ---------------------------------------------------------------- ⑧ 发布前备份开关与失败中止（#29）
-phase "8/8 发布前备份（SKIP_BACKUP 跳过 / 备份失败中止）"
+phase "8/9 发布前备份（SKIP_BACKUP 跳过 / 备份失败中止）"
 
 new_stub_home
 mkdir -p "$STUB_HOME/semgravio-app-registry"
@@ -390,6 +392,94 @@ leftover=$(find "$STUB_HOME/semgravio-app-registry/backups" \
 [ -z "$leftover" ] || die "备份失败留下残缺/临时文件（可能被误报为成功）：$leftover"
 ok "pg_dump 中途失败 → 应用变更前中止（无 compose/无解包/无残缺备份留存）"
 
+# ---------------------------------------------------------------- ⑨ 凭证反馈（#30）
+phase "9/9 凭证反馈（created / rotated / 无事件 / 日志不可用；不重放历史；不捎带其他 secret）"
+
+# 场景底座：合法 env（⑥⑦ 同款夹具）——凭证反馈只看启动后日志窗，与 env 生成路径无关
+seed_stage() {
+  new_stub_home
+  mkdir -p "$STUB_HOME/semgravio-app-registry"
+  write_valid_env "$STUB_HOME/semgravio-app-registry/.env.production"
+}
+
+# 时间窗口径：全链恰好一次 docker logs，且必须带 --since（RFC3339 UTC）限定本次启动——
+# 不带 --since 的全量日志会把历史凭证日志一并取回（STUB_SEED_OLD 场景据此判死刑）
+assert_logs_window() {
+  local n_logs n_since
+  n_logs=$(grep -c '^logs ' "$STUB_DOCKER_LOG")
+  n_since=$(grep -cE '^logs --since [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z semgravio-app-registry$' \
+              "$STUB_DOCKER_LOG" || true)
+  [ "$n_logs" = "1" ] && [ "$n_since" = "1" ] \
+    || die "凭证反馈应恰好一次 docker logs --since <RFC3339 UTC>（实际 logs 调用 $n_logs 次、带时间窗 $n_since 次）：$(grep '^logs ' "$STUB_DOCKER_LOG")"
+}
+
+# 时间窗日志里混入 db/redis/master key 噪声（若发布把整窗日志倒进终端、而非只挑 seed 凭证行，此处泄漏）
+SEED_DECOY="db=some-db-pw redis=some-redis-pw mk=$MK_VALID"
+# stub 事件里的 apiSecret 用运行时随机值（部署包含 HEAD 全仓源码，字面量会被下面的全目录扫描误伤）
+CREATED_SECRET="rehearsal-created-$(openssl rand -hex 24)"
+ROTATED_SECRET="rehearsal-rotated-$(openssl rand -hex 24)"
+
+seed_stage
+out=$(STUB_SEED_CREATED=1 STUB_SEED_CREATED_SECRET="$CREATED_SECRET" STUB_LOG_DECOY="$SEED_DECOY" run_release 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "$out" >&2; die "created 场景应零退出"; }
+grep -q "首次创建" <<<"$out" || die "created 事件未明确反馈首次创建：$out"
+grep -qF "$CREATED_SECRET" <<<"$out" || die "created 未显示明文 apiSecret：$out"
+grep -q "apiKey" <<<"$out" || die "created 未显示 apiKey：$out"
+grep -q "签名客户端" <<<"$out" || die "created 未说明 admin-console 配置用途：$out"
+assert_logs_window
+! grep -qF 'some-db-pw' <<<"$out" || die "数据库密码随凭证反馈泄漏进发布输出"
+! grep -qF 'some-redis-pw' <<<"$out" || die "Redis 密码随凭证反馈泄漏进发布输出"
+! grep -qF "$MK_VALID" <<<"$out" || die "master key 随凭证反馈泄漏进发布输出"
+# apiSecret 只许进终端：服务器侧（替身家目录＝应用目录）任何文件都不得含明文（AC「不写入
+# 部署包或额外的本地凭据文件」；部署包本身来自发布前 HEAD，phase ① 已断言包内无 secret 形态文件）
+! grep -rIlF "$CREATED_SECRET" "$STUB_HOME" \
+  || die "apiSecret 明文落进了服务器侧文件：$(grep -rIlF "$CREATED_SECRET" "$STUB_HOME")"
+ok "created：显示 admin-console 的 apiKey/apiSecret 与配置用途；日志窗内其他 secret 不外带、明文不落任何文件"
+
+seed_stage
+out=$(STUB_SEED_ROTATED=1 STUB_SEED_ROTATED_SECRET="$ROTATED_SECRET" STUB_LOG_DECOY="$SEED_DECOY" run_release 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "$out" >&2; die "rotated 场景应零退出"; }
+grep -q "已轮换" <<<"$out" || die "rotated 事件未明确反馈轮换：$out"
+grep -qF "$ROTATED_SECRET" <<<"$out" || die "rotated 未显示新 apiSecret：$out"
+grep -q "更新" <<<"$out" || die "rotated 未提示更新 admin-console 配置：$out"
+grep -q "admin-console" <<<"$out" || die "rotated 未指明凭证属于 admin-console：$out"
+assert_logs_window
+! grep -qF 'some-db-pw' <<<"$out" || die "rotated 场景泄漏数据库密码"
+! grep -qF 'some-redis-pw' <<<"$out" || die "rotated 场景泄漏 Redis 密码"
+! grep -qF "$MK_VALID" <<<"$out" || die "rotated 场景泄漏 master key"
+ok "rotated：显示新 apiSecret 并提示更新 admin-console 配置；其他 secret 不外带"
+
+# 无事件（普通重复发布）：不得伪造凭证或误导性成功；STUB_SEED_OLD 证明历史凭证日志不被重放
+seed_stage
+out=$(STUB_SEED_OLD=1 STUB_LOG_DECOY="$SEED_DECOY" run_release 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "$out" >&2; die "无事件场景应零退出"; }
+grep -q "无新凭证事件" <<<"$out" || die "无事件时未如实说明：$out"
+grep -q "幂等" <<<"$out" || die "无事件说明未指出 seed 幂等跳过：$out"
+# 健康探活可早于 seed 落日志（web 先起、ApplicationRunner 后跑）：无事件分支须自带自查命令兜底，
+# 首次发布命中该窄窗时不至于被「沿用既有凭证」误导
+grep -q "自查" <<<"$out" || die "无事件分支缺自查命令兜底（seed 竞态提示）：$out"
+! grep -qF 'stub-old-secret-from-previous-boot' <<<"$out" || die "重放了历史凭证日志（旧 apiSecret 不应出现）"
+# 凭证形态＝apiSecret 冒号后紧跟 Base64URL 长串（Git Bash grep 对多字节括号类按字节匹配：
+# [：:] 只吃全角冒号/逗号首字节，「apiSecret，」会误命中——多字节字面量放括号类外才整串生效）
+! grep -qE 'apiSecret[[:space:]]*(：|:)[[:space:]]*[A-Za-z0-9_-]{16,}' <<<"$out" \
+  || die "无事件却输出凭证形态的 apiSecret 行：$out"
+! grep -qF 'some-db-pw' <<<"$out" || die "无事件场景泄漏数据库密码"
+assert_logs_window
+ok "无事件：如实说明幂等跳过；不重放历史凭证、无伪造凭证输出"
+
+# 日志不可用：已健康的发布不因此失败，且「无法检查」与「无事件」在输出上可区分、不误报凭证成功
+seed_stage
+out=$(STUB_LOGS_FAIL=1 run_release 2>&1); rc=$?
+[ "$rc" -eq 0 ] || { echo "$out" >&2; die "日志不可用不应把已健康的发布拖成失败（rc=$rc）"; }
+grep -q "无法检查" <<<"$out" || die "日志不可用未明确报出：$out"
+! grep -q "无新凭证事件" <<<"$out" || die "日志不可用被误报成「无新凭证事件」（两者必须可区分）"
+! grep -q "首次创建" <<<"$out" || die "日志不可用时误报凭证生成成功"
+! grep -q "已轮换" <<<"$out" || die "日志不可用时误报凭证轮换"
+grep -q "docker logs" <<<"$out" || die "日志不可用缺人工自查指引（日志入口）：$out"
+grep -q "已上线" <<<"$out" || die "日志检查失败不应影响发布完成提示"
+grep -q '^logs ' "$STUB_DOCKER_LOG" || die "日志不可用场景应确实尝试过采集日志"
+ok "日志不可用：发布仍成功收尾，输出区分「无法检查」≠「无事件」，不误报凭证成功"
+
 # ---------------------------------------------------------------- 旧入口退役
 phase "附：旧发布入口退役"
 [ ! -e publish.sh ] && [ ! -e deploy.sh ] || die "旧密码式 publish.sh / 旧 deploy.sh 必须删除"
@@ -405,4 +495,4 @@ bad_ssh=$(grep -hE 'sshpass|StrictHostKeyChecking' deploy/build-bundle.sh deploy
 [ -z "$bad_ssh" ] || die "发布脚本仍使用 sshpass 或动主机密钥校验：$bad_ssh"
 ok "publish.sh/deploy.sh 已删除；发布链（含运维入口）无旧名、无 sshpass、保留主机密钥校验"
 
-printf '\nrelease 主链验收全部通过 ✅（部署包/脏工作区/Compose/Redis/门禁/健康/首次发布自动准备 env/发布前备份）\n'
+printf '\nrelease 主链验收全部通过 ✅（部署包/脏工作区/Compose/Redis/门禁/健康/首次发布自动准备 env/发布前备份/凭证反馈）\n'
