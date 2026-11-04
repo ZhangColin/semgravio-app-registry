@@ -1,4 +1,5 @@
 target/
+dist/
 *.class
 *.jar
 !.mvn/wrapper/maven-wrapper.jar

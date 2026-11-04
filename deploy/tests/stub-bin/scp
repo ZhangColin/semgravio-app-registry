@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# release 测试替身 scp：不连接任何真实服务器，上传文件落 $STUB_HOME（与替身 ssh 的 HOME 一致，
+# 远端脚本按 $HOME/<bundle> 解包，两个替身共享同一虚拟家目录）。
+set -u
+
+src=""
+skip=0
+for a in "$@"; do
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  case "$a" in
+    -i|-o|-P) skip=1 ;;
+    -*) : ;;
+    *@*:*) : ;;    # 目的（user@host:path）——替身固定落 $STUB_HOME
+    *) src="$a" ;;
+  esac
+done
+
+[ -z "$src" ] && exit 1
+mkdir -p "${STUB_HOME:?STUB_HOME 未设置}"
+cp "$src" "$STUB_HOME/"

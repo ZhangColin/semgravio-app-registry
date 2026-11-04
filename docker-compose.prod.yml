@@ -1,7 +1,16 @@
+# semgravio-app-registry 生产部署（issue #27）：显式项目名/镜像名/容器名，统一 semgravio-app-registry，
+# 不再出现 semgravio-openapi 旧名（同机多 compose 撞名防护）。
+# 网络边界：只加入 external webnet，不映射宿主端口、不加入 previewnet、不装 nginx 路由、
+# 不创建任何 infra 资源——共享 semgravio-{pg,redis,nginx} 由 semgravio-infra 负责。
+# 同 webnet 调用方经容器 DNS 访问：http://semgravio-app-registry:8088（localhost 指向调用方自己）。
+# 服务器侧用法（应用目录）：docker compose -f docker-compose.prod.yml up -d --build
+name: semgravio-app-registry
+
 services:
   app:
+    image: semgravio-app-registry:release
     build: .
-    container_name: semgravio-openapi
+    container_name: semgravio-app-registry
     restart: unless-stopped
     env_file:
       - .env.production

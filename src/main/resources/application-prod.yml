@@ -7,6 +7,8 @@ spring:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
+      # 共享 semgravio-redis 已启用 requirepass：密码显式来自 env，缺失即启动失败（fail-fast 不回落）
+      password: ${REDIS_PASSWORD}
 
 spring.jpa.show-sql: false
 logging.level.root: INFO

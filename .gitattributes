@@ -1,0 +1,4 @@
+# 部署脚本在 Linux 服务器执行，Windows checkout 也必须保持 LF。
+*.sh text eol=lf
+# 测试替身按命令名命名（无 .sh 后缀），同为脚本，同样钉 LF。
+deploy/tests/stub-bin/* text eol=lf

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# release 测试替身 ssh：不连接任何真实服务器。按调用形态分流：
+#   ssh -i KEY -o OPT user@host true                 → 连通性预检（STUB_SSH_FAIL=1 时失败）
+#   ssh -i KEY -o OPT user@host "VAR=val ... bash -s" <<脚本 → 在 $STUB_HOME 本地执行（HOME 指向 $STUB_HOME）
+set -u
+
+if [ "${STUB_SSH_FAIL:-0}" = "1" ]; then
+  exit 1
+fi
+
+host=""
+cmd=""
+skip=0
+for a in "$@"; do
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  case "$a" in
+    -i|-o|-p|-l|-F) skip=1 ;;
+    -*) : ;;
+    *@*) host="$a" ;;
+    *) cmd="${cmd:+$cmd }$a" ;;
+  esac
+done
+
+# 无远程命令（纯 ssh host）视为连通即成功
+[ -z "$cmd" ] && exit 0
+# 预检形态：ssh ... host true
+[ "$cmd" = "true" ] && exit 0
+
+# 远程命令形态：VAR=val ... bash -s，脚本来自 stdin——本地替身以 $STUB_HOME 为家目录直接执行
+# （经 env 注入变量前缀；exec 不接受前导赋值，踩过：exec A=1 bash → not found）
+mkdir -p "${STUB_HOME:?STUB_HOME 未设置}"
+export HOME="$STUB_HOME"
+cd "$STUB_HOME"
+eval "exec env $cmd"
