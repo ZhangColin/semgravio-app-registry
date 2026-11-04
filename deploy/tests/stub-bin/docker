@@ -11,8 +11,8 @@
 #                                              created/rotated 事件（release #30 凭证反馈）；
 #                                              事件里的 apiSecret 取自 STUB_SEED_CREATED_SECRET /
 #                                              STUB_SEED_ROTATED_SECRET（测试运行时注入随机值，
-#                                              不用字面量——部署包含 HEAD 全仓源码，字面量会被
-#                                              「明文不落任何文件」的全目录扫描误伤）
+#                                              不用字面量——字面量会被「明文不落任何文件」的
+#                                              全目录扫描误伤）
 #   STUB_SEED_OLD=1                           → 仅不带 --since 的全量 logs 调用回放历史 created
 #                                              事件（检验发布只看时间窗、不重放旧凭证日志）
 #   STUB_LOG_DECOY="..."                      → 时间窗日志追加一行含给定 secret 的噪声

@@ -2,7 +2,8 @@
 # 组装自包含部署包：dist/semgravio-app-registry-deploy-<时间戳>.tar.gz（macOS + Windows Git Bash）
 # 在开发机仓库根执行：deploy/build-bundle.sh；末行打印包路径（release.sh 依赖该约定）。
 #
-# 产物 = git archive HEAD 全仓正本（恒 LF，含 Dockerfile/compose/发布脚本/env 模板/文档）
+# 产物 = git archive HEAD 运行面正本（恒 LF；.gitattributes export-ignore 裁掉 src/docs/tests
+#        等服务器用不到的路径，剩 Dockerfile/compose/发布与运维脚本/env 模板）
 #        ＋ 可执行 fat jar（开发机 JDK 21 + Maven 构建——私有 cartisan-boot 依赖只在开发机解析，
 #        服务器只做 Docker 镜像构建）＋ REVISION。包内不含 .env*（env 未提交且 archive 只导已跟踪
 #        文件）与任何 secret；现网 env 永不被部署包覆盖。
@@ -41,7 +42,8 @@ echo "== 2/4 组装目录（git archive，仓库正本恒 LF） =="
 rm -rf "${OUT}"    # 同分钟内重跑兜底
 mkdir -p "${OUT}/target"
 # LF 由 .gitattributes（*.sh / stub-bin/* text eol=lf）保证：git archive 导出时按 text 属性做
-# 换行转换，输出恒为 LF 正本。全仓导出：部署包来自已提交源码，与 REVISION 严格一致。
+# 换行转换，输出恒为 LF 正本。运行面裁剪见 .gitattributes export-ignore 段：部署包仍来自
+# 已提交源码、与 REVISION 严格一致，只是不再携带源码/文档/测试。
 git archive HEAD | tar -x -C "${OUT}"
 cp "$JAR" "${OUT}/target/"
 

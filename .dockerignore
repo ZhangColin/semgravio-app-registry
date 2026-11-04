@@ -1,0 +1,8 @@
+# build context 只送构建所需：Dockerfile + fat jar。应用目录里的其余一切——现网 .env.production、
+# backups/ 数据库备份、REVISION、解包残余——永不进 docker daemon（更小的 context，也杜绝
+# secret/备份靠近构建面；镜像层本就只 COPY target jar，此处收敛的是 context 传输面）。
+# 父目录被 * 排除后子文件无法单独 re-include，故 target 目录本身也要放行。
+*
+!Dockerfile
+!target
+!target/semgravio-app-registry-1.0.0-SNAPSHOT.jar

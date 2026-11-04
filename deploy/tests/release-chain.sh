@@ -58,7 +58,12 @@ leak=$(grep -Ei '(^|/)(\.env\.production|\.env\.local)$|\.pem$|id_rsa' <<<"$entr
 [ -z "$leak" ] || die "包内出现 env/secret 形态文件：$leak"
 # 部署包不得携带 backups/（解包 --strip-components=1 落进应用目录，会覆盖现网备份正本）
 ! grep -qE '(^|/)backups/' <<<"$entries" || die "包内出现 backups/（会覆盖服务器备份目录）"
-ok "包内容：jar + Dockerfile + compose + 发布/运维脚本 + env 模板 + REVISION；无 .env*/密钥/backups"
+# 运行面瘦身（.gitattributes export-ignore）：源码/文档/测试/构建定义不进包不上服务器
+fat=$(grep -E '^([^/]+/)*(src|docs)/' <<<"$entries" || true)
+[ -z "$fat" ] || die "包内出现源码/文档（export-ignore 失效？）：$fat"
+! grep -qE '(^|/)pom\.xml$' <<<"$entries" || die "包内出现 pom.xml（服务器不构建 Maven）"
+! grep -qE '(^|/)deploy/tests/' <<<"$entries" || die "包内出现 deploy/tests/"
+ok "包内容：jar + Dockerfile + compose + 发布/运维脚本 + env 模板 + REVISION；无 .env*/密钥/backups、无源码/文档"
 
 EXTRACT="$TMP_BASE/extract"
 mkdir -p "$EXTRACT"
@@ -412,7 +417,8 @@ assert_logs_window() {
 
 # 时间窗日志里混入 db/redis/master key 噪声（若发布把整窗日志倒进终端、而非只挑 seed 凭证行，此处泄漏）
 SEED_DECOY="db=some-db-pw redis=some-redis-pw mk=$MK_VALID"
-# stub 事件里的 apiSecret 用运行时随机值（部署包含 HEAD 全仓源码，字面量会被下面的全目录扫描误伤）
+# stub 事件里的 apiSecret 用运行时随机值（「明文不落任何文件」断言对替身家目录做全目录扫描，
+# 字面量会扫到测试自身文件而误伤）
 CREATED_SECRET="rehearsal-created-$(openssl rand -hex 24)"
 ROTATED_SECRET="rehearsal-rotated-$(openssl rand -hex 24)"
 

@@ -2,3 +2,17 @@
 *.sh text eol=lf
 # 测试替身按命令名命名（无 .sh 后缀），同为脚本，同样钉 LF。
 deploy/tests/stub-bin/* text eol=lf
+
+# 部署包瘦身：git archive（deploy/build-bundle.sh 的打包机制）不导出服务器运行面用不到的
+# 路径——源码、文档、构建定义不进部署包/服务器。仍是 tracked-only、恒 HEAD、恒 LF 三大
+# 保证不变；exclude-list 失效模式良性：忘标新目录只是多带几个文件，绝不缺文件断发布。
+src/ export-ignore
+docs/ export-ignore
+pom.xml export-ignore
+CLAUDE.md export-ignore
+CONTEXT.md export-ignore
+.gitignore export-ignore
+deploy/tests/ export-ignore
+deploy/build-bundle.sh export-ignore
+deploy/rehearsal.sh export-ignore
+deploy/*.md export-ignore
