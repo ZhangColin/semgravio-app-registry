@@ -43,7 +43,7 @@ BASENAME=$(basename "$BUNDLE")
 [ -f "$BUNDLE" ] || { echo "错误：包文件不存在：$BUNDLE"; exit 1; }
 
 echo "== 2/4 上传（$(du -h "$BUNDLE" | cut -f1) → $REMOTE） =="
-scp -i "$SSH_KEY" "$BUNDLE" "$REMOTE:"
+scp -i "$SSH_KEY" -o BatchMode=yes -o ConnectTimeout=15 "$BUNDLE" "$REMOTE:"
 
 echo "== 3/4 服务器：infra 门禁 → env 门禁 → 解包 → compose up --build → 健康验收 =="
 ssh "${SSH_OPTS[@]}" "$REMOTE" \
@@ -70,15 +70,13 @@ if ! docker network inspect webnet >/dev/null 2>&1; then
 fi
 [ "$infra_bad" = 0 ] || { echo "infra 前置检查未过：先跑共享基础设施起栈（$INFRA_PATH/deploy.sh），再重跑发布"; exit 1; }
 
-echo "-- 生产 env 门禁（本票前提：已有 env；首次自动生成是 #28；现网 env 永不被部署包覆盖）"
+echo "-- 生产 env 门禁（本票前提：已有 env；首次自动生成与全量校验是 #28；现网 env 永不被部署包覆盖）"
 if [ ! -f .env.production ]; then
   echo "   ✗ 缺少 .env.production——先完成首次 env 准备再放行日常发布"
   exit 1
 fi
 grep -q '^REDIS_PASSWORD=.' .env.production \
   || { echo "   ✗ .env.production 缺 REDIS_PASSWORD（共享 semgravio-redis 已启用 requirepass）"; exit 1; }
-grep -q '^APP_REGISTRY_API_SECRET_MASTER_KEY=.' .env.production \
-  || { echo "   ✗ .env.production 缺 APP_REGISTRY_API_SECRET_MASTER_KEY（apiSecret AES-GCM 主密钥）"; exit 1; }
 
 echo "-- 解包 $BUNDLE_FN（包内无 .env*，现网 env 不被覆盖）"
 tar -xzf "$HOME/$BUNDLE_FN" --strip-components=1

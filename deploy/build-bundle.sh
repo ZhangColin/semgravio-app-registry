@@ -40,9 +40,9 @@ fi
 echo "== 2/4 组装目录（git archive，仓库正本恒 LF） =="
 rm -rf "${OUT}"    # 同分钟内重跑兜底
 mkdir -p "${OUT}/target"
-# git archive 会按本机 core.autocrlf 做 checkout 同款转换（Windows 上＝CRLF，实测踩过），
-# 覆盖后输出仓库正本、恒 LF。全仓导出：部署包来自已提交源码，与 REVISION 严格一致。
-git -c core.autocrlf=false -c core.eol=lf archive HEAD | tar -x -C "${OUT}"
+# LF 由 .gitattributes（*.sh / stub-bin/* text eol=lf）保证：git archive 导出时按 text 属性做
+# 换行转换，输出恒为 LF 正本。全仓导出：部署包来自已提交源码，与 REVISION 严格一致。
+git archive HEAD | tar -x -C "${OUT}"
 cp "$JAR" "${OUT}/target/"
 
 echo "== 3/4 记录 revision =="
