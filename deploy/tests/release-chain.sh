@@ -69,7 +69,11 @@ PKG_ROOT="$EXTRACT/$(basename "$BUNDLE" .tar.gz)"
 unzip -l "$PKG_ROOT/target/$JAR_NAME" | grep -q 'BOOT-INF' || die "jar 非 Spring Boot fat jar"
 ok "jar 非空且为可执行 fat jar（BOOT-INF）"
 
-crlf=$(grep -rl $'\r' --include='*.sh' "$PKG_ROOT" || true)
+# 字节级 CR 检测（tr 自带 \r 转义，不经 bash $''）——勿改回 grep $'\r'：Git Bash 5.3 下
+# 脚本文件里的 $'\r' 会异常展开为空串导致 grep 空模式误匹配全部文件（bash -c 下正常，已踩坑）
+crlf=$(find "$PKG_ROOT" -name '*.sh' -type f | while IFS= read -r f; do
+  [ -n "$(LC_ALL=C tr -cd '\r' < "$f")" ] && printf '%s\n' "$f"
+done)
 [ -z "$crlf" ] || die "包内 shell 脚本出现 CRLF：$crlf"
 ok "包内 *.sh 全部 LF"
 
