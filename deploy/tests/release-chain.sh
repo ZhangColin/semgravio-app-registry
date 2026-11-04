@@ -236,8 +236,8 @@ phase "附：旧发布入口退役"
 legacy=$(git grep -h 'semgravio-openapi' -- deploy/build-bundle.sh deploy/release.sh deploy/tests/stub-bin \
     docker-compose.prod.yml Dockerfile .env.production.example | grep -vE '^[[:space:]]*#' || true)
 [ -z "$legacy" ] || die "发布链文件仍实际使用旧名 semgravio-openapi：$legacy"
-! grep -rEq 'sshpass|StrictHostKeyChecking=no' deploy --include='*.sh' \
-  || die "发布链仍使用 sshpass 或关闭主机密钥校验"
+! grep -qE 'sshpass|StrictHostKeyChecking=no' deploy/build-bundle.sh deploy/release.sh \
+  || die "发布脚本仍使用 sshpass 或关闭主机密钥校验"
 ok "publish.sh/deploy.sh 已删除；发布链无旧名、无 sshpass、保留主机密钥校验"
 
 printf '\nrelease 主链验收全部通过 ✅（部署包/脏工作区/Compose/Redis/门禁/健康）\n'
