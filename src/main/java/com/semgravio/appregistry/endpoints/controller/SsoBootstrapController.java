@@ -5,6 +5,7 @@ import com.semgravio.appregistry.application.dto.response.SsoClientInfo;
 import com.cartisan.core.exception.BaseCodeMessage;
 import com.cartisan.core.exception.DomainException;
 import com.cartisan.openapi.annotation.RequireSignature;
+import com.cartisan.web.doc.ErrorCodes;
 import com.cartisan.web.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,6 +43,7 @@ public class SsoBootstrapController {
     @GetMapping("/{clientId}")
     @Operation(summary = "按 client_id 取 SsoClient（bootstrap）",
             description = "返 SsoClientInfo（active 时含 client_secret hash；不含明文）")
+    @ErrorCodes("RESOURCE_NOT_FOUND")
     public ApiResponse<SsoClientInfo> getByClientId(@PathVariable String clientId) {
         SsoClientInfo info = ssoClientAppService.resolveSsoClientInfo(clientId)
                 .orElseThrow(() -> new DomainException(BaseCodeMessage.RESOURCE_NOT_FOUND, clientId));

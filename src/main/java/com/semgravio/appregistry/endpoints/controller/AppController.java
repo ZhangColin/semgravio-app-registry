@@ -28,6 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>加固说明：app-registry 只对内可达，网络边界即信任边界，管理端点不再叠鉴权（ADR-0001/0002 §9）。
  * 签名验签过滤器对无 {@code X-App-Id} 的请求直接放行。</p>
  *
+ * <p><b>错误码契约</b>（#25，对齐 identity #77 口径）：每端点 {@code @ErrorCodes} 声明其调用链
+ * 可抛的业务错误码（渲染进 swagger description，与 CodeMessage 枚举单点同源）；声明序 = 调用链发生序。
+ * 验签 401 与参数校验系框架统一响应，不逐端点声明；DTO {@code @Valid} 与聚合侧同义校验
+ * 按并集列（防两套演进漂移后契约缺码）。</p>
+ *
  * @since 0.1.0
  */
 @RestController
@@ -45,12 +50,14 @@ public class AppController {
 
     @PostMapping
     @Operation(summary = "创建应用")
+    @ErrorCodes({"DUPLICATE", "AR_APP_CODE_INVALID", "AR_APP_NAME_REQUIRED"})
     public ApiResponse<AppResponse> create(@Valid @RequestBody CreateAppCommand command) {
         return ApiResponse.ok(appService.create(command));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "查询应用详情")
+    @ErrorCodes("RESOURCE_NOT_FOUND")
     public ApiResponse<AppResponse> getById(@PathVariable Long id) {
         return ApiResponse.ok(appService.findById(id));
     }
@@ -67,18 +74,21 @@ public class AppController {
 
     @PutMapping("/{id}/disable")
     @Operation(summary = "禁用应用")
+    @ErrorCodes({"RESOURCE_NOT_FOUND", "AR_ADMIN_CONSOLE_CANNOT_DISABLE", "AR_APP_ALREADY_DISABLED"})
     public ApiResponse<AppResponse> disable(@PathVariable Long id) {
         return ApiResponse.ok(appService.disable(id));
     }
 
     @PutMapping("/{id}/enable")
     @Operation(summary = "启用应用")
+    @ErrorCodes({"RESOURCE_NOT_FOUND", "AR_APP_ALREADY_ENABLED"})
     public ApiResponse<AppResponse> enable(@PathVariable Long id) {
         return ApiResponse.ok(appService.enable(id));
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "更新应用信息")
+    @ErrorCodes({"RESOURCE_NOT_FOUND", "AR_APP_NAME_REQUIRED"})
     public ApiResponse<AppResponse> update(@PathVariable Long id,
                                            @Valid @RequestBody UpdateAppCommand command) {
         return ApiResponse.ok(appService.update(id, command));

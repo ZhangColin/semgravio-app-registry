@@ -4,6 +4,7 @@ import com.semgravio.appregistry.application.ApiKeyAppService;
 import com.semgravio.appregistry.application.dto.response.ApiKeyCreatedResponse;
 import com.semgravio.appregistry.application.dto.response.ApiKeyResponse;
 import com.cartisan.openapi.annotation.RequireSignature;
+import com.cartisan.web.doc.ErrorCodes;
 import com.cartisan.web.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,6 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
  * ApiKey 管理 REST API（挂在应用路径下，1:1）。
  *
  * <p>加固说明：app-registry 只对内可达，网络边界即信任边界（ADR-0002 §9）。</p>
+ *
+ * <p><b>错误码契约</b>（#25，对齐 identity #77 口径）：每端点 {@code @ErrorCodes} 声明其调用链
+ * 可抛的业务错误码（渲染进 swagger description，与 CodeMessage 枚举单点同源）；声明序 = 调用链发生序。
+ * 验签 401 与参数校验系框架统一响应，不逐端点声明；DTO {@code @Valid} 与聚合侧同义校验
+ * 按并集列（防两套演进漂移后契约缺码）。</p>
  *
  * @since 0.1.0
  */
@@ -35,24 +41,28 @@ public class ApiKeyController {
 
     @PostMapping
     @Operation(summary = "创建或轮换 ApiKey", description = "已有则轮换、否则新建；响应一次性返回明文 apiSecret")
+    @ErrorCodes("RESOURCE_NOT_FOUND")
     public ApiResponse<ApiKeyCreatedResponse> createOrRotate(@PathVariable Long appId) {
         return ApiResponse.ok(apiKeyAppService.createOrRotate(appId));
     }
 
     @GetMapping
     @Operation(summary = "查询应用的 ApiKey", description = "不返回明文 apiSecret")
+    @ErrorCodes("RESOURCE_NOT_FOUND")
     public ApiResponse<ApiKeyResponse> get(@PathVariable Long appId) {
         return ApiResponse.ok(apiKeyAppService.getByAppId(appId));
     }
 
     @PutMapping("/disable")
     @Operation(summary = "禁用 ApiKey")
+    @ErrorCodes({"RESOURCE_NOT_FOUND", "AR_ADMIN_CONSOLE_CANNOT_DISABLE", "AR_API_KEY_ALREADY_DISABLED"})
     public ApiResponse<ApiKeyResponse> disable(@PathVariable Long appId) {
         return ApiResponse.ok(apiKeyAppService.disable(appId));
     }
 
     @PutMapping("/enable")
     @Operation(summary = "启用 ApiKey")
+    @ErrorCodes({"RESOURCE_NOT_FOUND", "AR_API_KEY_ALREADY_ENABLED"})
     public ApiResponse<ApiKeyResponse> enable(@PathVariable Long appId) {
         return ApiResponse.ok(apiKeyAppService.enable(appId));
     }
