@@ -38,6 +38,7 @@ new_stub_home() { # 每个场景独立虚拟家目录 + docker 调用日志 + �
   STUB_HOME="$home"
   STUB_DOCKER_LOG="$home/docker.log"
   STUB_KEY="$home/id_key"
+  export STUB_HOME STUB_DOCKER_LOG STUB_KEY   # 替身经 release.sh 子进程链取用，必须导出
 }
 
 # ---------------------------------------------------------------- ① 打包（真构建）
