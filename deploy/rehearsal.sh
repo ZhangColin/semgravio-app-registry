@@ -21,14 +21,13 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 
-ok()   { printf '  ✓ %s\n' "$*"; }
-die()  { printf '✗ %s\n' "$*" >&2; exit 1; }
-phase(){ printf '\n== %s ==\n' "$*"; }
-
 LOG_DIR=$(mktemp -d)
 ALL_PASS=0
 cleanup() { [ "$ALL_PASS" = 1 ] && rm -rf "$LOG_DIR"; }
 trap cleanup EXIT
+
+TMP_BASE=$LOG_DIR   # lib.sh 契约位；本脚本不自建 stub home（那是两个替身套件自己的事）
+. "$ROOT/deploy/tests/lib.sh"   # ok/die/phase + cr_in（CR 检测原子）
 
 # 各环节结果汇总（名称 + 耗时），收尾统一打印
 declare -a SUITE_NAMES=() SUITE_SECS=()
@@ -38,7 +37,6 @@ run_suite() { # $1=环节名 $2...=命令——实时透传输出、日志落 $L
   shift
   SUITE_NAMES+=("$name")
   t0=$(date +%s)
-  set -o pipefail
   "$@" 2>&1 | tee "$LOG_DIR/${name//\//_}.log"
   rc=$?
   SUITE_SECS+=("$(( $(date +%s) - t0 ))")
@@ -55,9 +53,9 @@ phase "0/6 前置检查（工作区/分支/docker）"
 command -v docker >/dev/null 2>&1 || die "docker 不可用（③ compose render 与 ④ requirepass 契约需要）"
 ok "前置通过（分支 $(git rev-parse --abbrev-ref HEAD)，REVISION $(git rev-parse --short HEAD)）"
 
-# 部署脚本全集（语法/LF 检查对象；stub-bin 按命令名命名、无 .sh 后缀，同为脚本）
-SCRIPTS=(deploy/build-bundle.sh deploy/release.sh deploy/server.sh deploy/rehearsal.sh)
-for f in deploy/tests/*.sh deploy/tests/stub-bin/*; do SCRIPTS+=("$f"); done
+# 部署脚本全集（语法/LF 检查对象；顶层用 glob 自纳新增脚本；stub-bin 按命令名命名、
+# 无 .sh 后缀，同为脚本）
+SCRIPTS=(deploy/*.sh deploy/tests/*.sh deploy/tests/stub-bin/*)
 
 # ---------------------------------------------------------------- 1. 语法检查
 phase "1/6 语法检查（bash -n × ${#SCRIPTS[@]} 个脚本）"
@@ -68,11 +66,9 @@ ok "${#SCRIPTS[@]} 个部署脚本（含测试与命令替身）语法全部通�
 
 # ---------------------------------------------------------------- 2. LF 约束
 phase "2/6 LF 约束（字节级无 CR）"
-# tr 字节级检测（勿改回 grep $'\r'：Git Bash 5.3 下脚本内 $'\r' 异常展开为空串导致误匹配全部
-# 通过——release-chain.sh 已踩过）；.gitattributes 钉的 LF 在这里做运行期复核
-crlf=$(for f in "${SCRIPTS[@]}"; do
-  [ -n "$(LC_ALL=C tr -cd '\r' < "$f")" ] && printf '%s\n' "$f"
-done)
+# 检测原子与 Git Bash $'\r' 陷阱说明单源在 tests/lib.sh 的 cr_in；
+# .gitattributes 钉的 LF 在这里做运行期复核
+crlf=$(for f in "${SCRIPTS[@]}"; do cr_in "$f"; done)
 [ -z "$crlf" ] || die "部署脚本出现 CRLF（服务器侧 bash 会拒跑）：$crlf"
 ok "${#SCRIPTS[@]} 个脚本全部 LF（Windows Git Bash 下运行本排练即执行路径验证）"
 

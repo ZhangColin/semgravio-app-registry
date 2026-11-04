@@ -1,6 +1,6 @@
-# 测试共用骨架（release-chain.sh / server-ops.sh 共用）：输出助手 + chmod 权限位探测 +
-# ssh/scp/docker 替身的一次性虚拟家目录与场景变量。调用方须先定义 TMP_BASE 与 ROOT
-#（仓库根，负责 trap 清理与定位 stub-bin）。
+# 测试共用骨架（release-chain.sh / server-ops.sh / deploy-docs.sh / rehearsal.sh 共用）：
+# 输出助手 + CR 检测原子 + chmod 权限位探测 + ssh/scp/docker 替身的一次性虚拟家目录与
+# 场景变量。调用方须先定义 TMP_BASE 与 ROOT（仓库根，负责 trap 清理与定位 stub-bin）。
 # 导出项经 release.sh / server.sh 子进程链传递给替身：
 #   STUB_HOME       虚拟家目录（替身 ssh 在此执行「远端」脚本；scp 上传落点）
 #   STUB_DOCKER_LOG docker 替身调用记录（断言 docker 行为的唯一口径）
@@ -9,6 +9,11 @@
 ok()   { printf '  ✓ %s\n' "$*"; }
 die()  { printf '✗ %s\n' "$*" >&2; exit 1; }
 phase(){ printf '\n== %s ==\n' "$*"; }
+
+# CR 字节级检测（LF 钉制的运行期复核原子）：文件含 CR 即打印其名（调用方聚合后按非空判违规）。
+# 勿改回 grep $'\r'：Git Bash 5.3 下脚本文件里的 $'\r' 会异常展开为空串，grep 空模式误匹配
+# 全部文件（bash -c 下正常，已踩坑）；tr 自带 \r 转义、不经 $'' 展开，故用 tr。
+cr_in() { [ -n "$(LC_ALL=C tr -cd '\r' < "$1")" ] && printf '%s\n' "$1" || true; }
 
 # chmod 权限位探测：Git Bash（noacl 挂载）下 chmod 为建议性、stat 恒报 644——
 # 本机替身环境跳过 600 位断言（CHMOD_EFFECTIVE=0）；Linux 服务器/CI 上照常断言
